@@ -9,8 +9,6 @@ import {
   Eye,
   EyeOff,
   Map as MapIcon,
-  Mic,
-  MicOff,
   Moon,
   PhoneCall,
   Shield,
@@ -24,6 +22,7 @@ import { AccountCreationModal } from './components/AccountCreationModal';
 import { AccountView } from './components/AccountView';
 import { ActivityView } from './components/ActivityView';
 import { BidJobsModal } from './components/BidJobsModal';
+import { BootScreen } from './components/BootScreen';
 import { EarningsView } from './components/EarningsView';
 import { IncomingRequestModal } from './components/IncomingRequestModal';
 import { InsuranceRenewalChat, InsuranceView } from './components/InsuranceView';
@@ -46,6 +45,7 @@ import {
   fetchRoadRoute,
   generateBidJobsNear,
   generateLiveRideRequest,
+  generateRanksNear,
   generateSurgeZonesNear,
   getCityById,
   getFutureIsoDate,
@@ -76,12 +76,9 @@ import {
   ManeuverStep,
   RideRequest,
   SurgeZone,
+  TaxiRank,
   Vehicle,
 } from './types/driver';
-import {
-  VoiceSnapshot,
-  dynamicIslandVoiceManager,
-} from './utils/dynamicIslandVoiceManager';
 import {
   NotificationPermissionState,
   getNotificationPermission,
@@ -89,13 +86,11 @@ import {
 } from './utils/notifications';
 import { releaseScreenWakeLock, requestScreenWakeLock } from './utils/pwaDevice';
 import {
-  cancelNavigationSpeech,
   playArrivalChime,
   playBidAcceptedTone,
   playHyperSound,
   playNavigationTurnPing,
   playSuccessTone,
-  speakNavigationCue,
 } from './utils/sound';
 
 const DEFAULT_PROFILE: DriverProfile = {
@@ -163,6 +158,11 @@ export default function App() {
   const [surgeZones, setSurgeZones] = useState<SurgeZone[]>(() =>
     generateSurgeZonesNear(initialCity.center, initialCity.id)
   );
+  const [ranks, setRanks] = useState<TaxiRank[]>(() =>
+    generateRanksNear(initialCity.center, initialCity.id)
+  );
+  const [activeRankId, setActiveRankId] = useState<string | null>(null);
+  const [rankQueuePos, setRankQueuePos] = useState<number | null>(null);
 
   // Active request & routing
   const [activeRequest, setActiveRequest] = useState<RideRequest | null>(null);
@@ -173,9 +173,15 @@ export default function App() {
   const routeIndexRef = useRef<number>(0);
   const gpsWatchIdRef = useRef<number | null>(null);
 
-  // Bid Marketplace
+  // Bid Marketplace (Bolt Flex)
   const [bidJobs, setBidJobs] = useState<BidJobOffer[]>(() =>
-    generateBidJobsNear(initialCity.center, initialCity.id, ['Bolt', 'Comfort', 'Bolt Green'])
+    generateBidJobsNear(initialCity.center, initialCity.id, [
+      'Bolt',
+      'Comfort',
+      'Bolt Green',
+      'Bolt Flex',
+      'Bolt City',
+    ])
   );
   const [showBidJobsModal, setShowBidJobsModal] = useState(false);
 
@@ -201,6 +207,7 @@ export default function App() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showSafetyModal, setShowSafetyModal] = useState(false);
   const [showAccountCreation, setShowAccountCreation] = useState(false);
+  const [showBootScreen, setShowBootScreen] = useState(true);
   const [callBanner, setCallBanner] = useState<string | null>(null);
 
   // Notifications & Toasts
@@ -218,30 +225,29 @@ export default function App() {
       .padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
   });
 
-  // Dynamic Island Voice State
-  const [voiceSnap, setVoiceSnap] = useState<VoiceSnapshot>(() =>
-    dynamicIslandVoiceManager.getSnapshot()
-  );
-
-  // Rider Chat
+  // Rider Chat & 2-Minute No-Response Timer
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [awaitingRiderReply, setAwaitingRiderReply] = useState(false);
+  const [riderNoResponseSec, setRiderNoResponseSec] = useState(0);
+  const [nextRequestWaitLeft, setNextRequestWaitLeft] = useState<number>(60);
+  const dispatchTriggeredRef = useRef<boolean>(false);
 
   // Driver Settings
   const [settings, setSettings] = useState<DriverSettings>({
     darkMode: false,
     soundAlerts: true,
-    voiceNavigation: true,
     autoAccept: false,
     acceptCash: true,
     allowBidOffers: true,
+    dispatchWaitSec: 60,
     minFareFilter: 0,
     maxPickupKm: 6,
     minRiderRating: 0,
     pushNotifications: getNotificationPermission() === 'granted',
     backgroundRefresh: true,
     refreshIntervalSec: 30,
-    enabledCategories: ['Bolt', 'Comfort', 'Bolt Green'],
+    enabledCategories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City'],
     destinationFilter: {
       enabled: false,
       targetCoords: null,
@@ -251,6 +257,7 @@ export default function App() {
 
   const activeCity = getCityById(currentCityId);
   const activeVehicle = vehicles.find((v) => v.isActive) || vehicles[0];
+  const activeRank = ranks.find((r) => r.id === activeRankId) || null;
   const currency = activeCity.currency;
   const isOnline = status !== 'OFFLINE';
 
@@ -318,7 +325,7 @@ export default function App() {
               registration
                 .showNotification(title, {
                   body,
-                  icon: 'https://www.gstatic.com/images/branding/product/1x/googleg_48dp.png',
+                  icon: '/assets/aistudio/image_adf30014.png',
                   vibrate: [200, 100, 200],
                   tag: title,
                   renotify: true,
@@ -484,26 +491,58 @@ export default function App() {
     }
   }, [profile]);
 
-  // Subscribe to Dynamic Island Voice Manager
+  // 2-Minute Customer No-Response Timer
   useEffect(() => {
-    const unsubSnap = dynamicIslandVoiceManager.subscribe((snap) => setVoiceSnap(snap));
-    return () => unsubSnap();
-  }, []);
+    if (
+      !awaitingRiderReply ||
+      (status !== 'EN_ROUTE_PICKUP' && status !== 'ARRIVED_PICKUP')
+    ) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setRiderNoResponseSec((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [awaitingRiderReply, status]);
 
-  // Shift Start / End with Screen Wake Lock
+  // Taxi Rank Queue Progression while Online
+  useEffect(() => {
+    if (!activeRankId || status !== 'ONLINE_IDLE') return;
+    const timer = setInterval(() => {
+      setRankQueuePos((pos) => (pos && pos > 1 ? pos - 1 : 1));
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [activeRankId, status]);
+
+  // Shift Start / Break / End with Screen Wake Lock
   const startShift = useCallback(() => {
     requestScreenWakeLock().catch(() => {});
+    dispatchTriggeredRef.current = false;
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
     setProfile((p) => ({ ...p, isOnline: true }));
     playSuccessTone(settings.soundAlerts);
-    speakNavigationCue('You are now online. Screen wake lock active.', settings.voiceNavigation);
     addToast('Online', 'Screen wake lock active while driving', 'success');
-  }, [settings.soundAlerts, settings.voiceNavigation, addToast]);
+  }, [settings.soundAlerts, settings.dispatchWaitSec, addToast]);
+
+  const handleStartBreak = useCallback(() => {
+    setStatus('ON_BREAK');
+    addToast('On Break', 'Ride requests paused without affecting your score', 'info');
+  }, [addToast]);
+
+  const handleResumeFromBreak = useCallback(() => {
+    dispatchTriggeredRef.current = false;
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
+    setStatus('ONLINE_IDLE');
+    playSuccessTone(settings.soundAlerts);
+    addToast('Back Online', 'Accepting nearby rides & surges again', 'success');
+  }, [settings.soundAlerts, settings.dispatchWaitSec, addToast]);
 
   const endShift = useCallback(() => {
     releaseScreenWakeLock().catch(() => {});
-    cancelNavigationSpeech();
     setStatus('OFFLINE');
+    setActiveRankId(null);
+    setRankQueuePos(null);
     setProfile((p) => ({ ...p, isOnline: false }));
     addToast('Offline', 'Shift ended and screen wake lock released', 'info');
   }, [addToast]);
@@ -543,6 +582,7 @@ export default function App() {
         setIsLiveGps(true);
         setGpsLoading(false);
         setSurgeZones(generateSurgeZonesNear(coords, currentCityId));
+        setRanks(generateRanksNear(coords, currentCityId));
         setBidJobs(generateBidJobsNear(coords, currentCityId, settings.enabledCategories));
         addToast('Live GPS Locked', 'Dispatch map centered on your real location', 'success');
       },
@@ -558,7 +598,7 @@ export default function App() {
     }
     gpsWatchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        if (status === 'OFFLINE' || status === 'ONLINE_IDLE') {
+        if (status === 'OFFLINE' || status === 'ONLINE_IDLE' || status === 'ON_BREAK') {
           setDriverPos({
             lat: Number(pos.coords.latitude.toFixed(6)),
             lng: Number(pos.coords.longitude.toFixed(6)),
@@ -584,7 +624,10 @@ export default function App() {
       setIsLiveGps(false);
       setCurrentCityId(city.id);
       setDriverPos(city.center);
+      setActiveRankId(null);
+      setRankQueuePos(null);
       setSurgeZones(generateSurgeZonesNear(city.center, city.id));
+      setRanks(generateRanksNear(city.center, city.id));
       setBidJobs(generateBidJobsNear(city.center, city.id, settings.enabledCategories));
       addToast('City Switched', `Dispatch map moved to ${city.name}, ${city.country}`, 'info');
     },
@@ -608,6 +651,7 @@ export default function App() {
       minRiderRating: settings.minRiderRating,
       destinationTarget: settings.destinationFilter.targetCoords,
       surgeZones,
+      preferredRankArea: activeRank ? activeRank.area : null,
     });
 
     setActiveRequest(req);
@@ -621,10 +665,6 @@ export default function App() {
       `${req.pickupAddress} → ${req.dropoffAddress} (${req.pickupEtaMin} min away)`,
       'alert'
     );
-    speakNavigationCue(
-      `New ${req.category} ride offer, ${req.currency}${req.estimatedFare.toFixed(0)}`,
-      settings.voiceNavigation
-    );
   }, [
     isInsuranceExpired,
     driverPos,
@@ -636,19 +676,31 @@ export default function App() {
     settings.minFareFilter,
     settings.minRiderRating,
     settings.destinationFilter.targetCoords,
-    settings.voiceNavigation,
     surgeZones,
+    activeRank,
     sendNotification,
   ]);
 
-  // Auto-dispatch ride requests when Online & Idle
+  // 1–5 min wait countdown between completing/declining a job and receiving the next request
   useEffect(() => {
     if (status !== 'ONLINE_IDLE') return;
-    const timer = setTimeout(() => {
+    const timer = setInterval(() => {
+      setNextRequestWaitLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [status]);
+
+  // Dispatch ride offer once the wait timer hits 0 (paused when ON_BREAK)
+  useEffect(() => {
+    if (status !== 'ONLINE_IDLE') {
+      dispatchTriggeredRef.current = false;
+      return;
+    }
+    if (nextRequestWaitLeft === 0 && !dispatchTriggeredRef.current) {
+      dispatchTriggeredRef.current = true;
       triggerRideOffer();
-    }, 5200);
-    return () => clearTimeout(timer);
-  }, [status, triggerRideOffer]);
+    }
+  }, [status, nextRequestWaitLeft, triggerRideOffer]);
 
   // Background App Refresh Engine
   const runBackgroundSync = useCallback(() => {
@@ -711,15 +763,13 @@ export default function App() {
       routeIndexRef.current = 0;
       setChatMessages([]);
       setUnreadChatCount(0);
+      setAwaitingRiderReply(false);
+      setRiderNoResponseSec(0);
       setAcceptanceRate((r) => Math.min(100, r + 1));
       setStatus('EN_ROUTE_PICKUP');
 
       if (customFare !== undefined) {
         playBidAcceptedTone(settings.soundAlerts);
-        speakNavigationCue(
-          `Bid accepted. Navigate to ${finalReq.pickupAddress}`,
-          settings.voiceNavigation
-        );
         sendNotification(
           'Bid Accepted',
           `Rider accepted your ${finalReq.currency}${finalReq.estimatedFare.toFixed(2)} offer`,
@@ -727,13 +777,9 @@ export default function App() {
         );
       } else {
         playSuccessTone(settings.soundAlerts);
-        speakNavigationCue(
-          finalReq.maneuversToPickup[0]?.instruction || `Navigate to ${finalReq.pickupAddress}`,
-          settings.voiceNavigation
-        );
       }
     },
-    [activeRequest, settings.soundAlerts, settings.voiceNavigation, sendNotification]
+    [activeRequest, settings.soundAlerts, sendNotification]
   );
 
   useEffect(() => {
@@ -746,14 +792,17 @@ export default function App() {
   }, [status, settings.autoAccept, handleAcceptRequest]);
 
   const handleDeclineRequest = useCallback(() => {
-    cancelNavigationSpeech();
     setActiveRequest(null);
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
+    setAwaitingRiderReply(false);
+    setRiderNoResponseSec(0);
     setAcceptanceRate((r) => Math.max(70, r - 1));
+    dispatchTriggeredRef.current = false;
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
-  }, []);
+  }, [settings.dispatchWaitSec]);
 
   // Service Worker Background Notification Action Callback (Accept / Decline buttons)
   useEffect(() => {
@@ -781,7 +830,7 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
   }, [status, handleAcceptRequest, handleDeclineRequest]);
 
-  // Smooth GPS movement along OSRM route + spoken turns
+  // Smooth GPS movement along OSRM route + real navigation sound chimes
   useEffect(() => {
     if (status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS') return;
     if (activeRoute.length < 2) return;
@@ -801,7 +850,6 @@ export default function App() {
       if (nextMan && idx + 1 >= nextMan.pointIndex) {
         setCurrentManeuverIndex((m) => m + 1);
         playNavigationTurnPing(settings.soundAlerts);
-        speakNavigationCue(nextMan.instruction, settings.voiceNavigation);
       }
     }, 360);
 
@@ -812,7 +860,6 @@ export default function App() {
     activeManeuvers,
     currentManeuverIndex,
     settings.soundAlerts,
-    settings.voiceNavigation,
   ]);
 
   const handleArrivePickup = useCallback(() => {
@@ -821,11 +868,12 @@ export default function App() {
     setActiveRoute([]);
     setStatus('ARRIVED_PICKUP');
     playArrivalChime(settings.soundAlerts);
-    speakNavigationCue(
-      `You have arrived at pickup for ${activeRequest.riderName}`,
-      settings.voiceNavigation
-    );
-  }, [activeRequest, settings.soundAlerts, settings.voiceNavigation]);
+    // Start 2-minute customer response watch if rider hasn't replied yet
+    if (chatMessages.every((m) => m.sender !== 'rider')) {
+      setAwaitingRiderReply(true);
+      setRiderNoResponseSec(0);
+    }
+  }, [activeRequest, settings.soundAlerts, chatMessages]);
 
   const handleStartTrip = useCallback(() => {
     if (!activeRequest) return;
@@ -833,55 +881,22 @@ export default function App() {
     setActiveManeuvers(activeRequest.maneuversToDropoff);
     setCurrentManeuverIndex(0);
     routeIndexRef.current = 0;
+    setAwaitingRiderReply(false);
+    setRiderNoResponseSec(0);
     setStatus('IN_PROGRESS');
     playSuccessTone(settings.soundAlerts);
-    speakNavigationCue(
-      activeRequest.maneuversToDropoff[0]?.instruction ||
-        `Trip started. Head to ${activeRequest.dropoffAddress}`,
-      settings.voiceNavigation
-    );
-  }, [activeRequest, settings.soundAlerts, settings.voiceNavigation]);
+  }, [activeRequest, settings.soundAlerts]);
 
   const handleCompleteTrip = useCallback(() => {
     if (!activeRequest) return;
     setDriverPos(activeRequest.dropoffCoords);
     setActiveRoute([]);
     setActiveManeuvers([]);
+    setAwaitingRiderReply(false);
+    setRiderNoResponseSec(0);
     setStatus('TRIP_COMPLETED');
     playSuccessTone(settings.soundAlerts);
-    speakNavigationCue('Trip completed. Please rate your rider.', settings.voiceNavigation);
-  }, [activeRequest, settings.soundAlerts, settings.voiceNavigation]);
-
-  // Connect Dynamic Island Voice Commands ("accept", "decline", "go online", "go offline", "next", "complete")
-  useEffect(() => {
-    const unsub = dynamicIslandVoiceManager.onCommand((cmd) => {
-      if (cmd === 'accept' && status === 'INCOMING_REQUEST') {
-        handleAcceptRequest();
-      } else if (cmd === 'decline' && status === 'INCOMING_REQUEST') {
-        handleDeclineRequest();
-      } else if (cmd === 'go_online' && status === 'OFFLINE') {
-        handleGoOnline();
-      } else if (cmd === 'go_offline' && status === 'ONLINE_IDLE') {
-        endShift();
-      } else if (cmd === 'next') {
-        if (status === 'EN_ROUTE_PICKUP') handleArrivePickup();
-        else if (status === 'ARRIVED_PICKUP') handleStartTrip();
-        else if (status === 'IN_PROGRESS') handleCompleteTrip();
-      } else if (cmd === 'complete' && status === 'IN_PROGRESS') {
-        handleCompleteTrip();
-      }
-    });
-    return () => unsub();
-  }, [
-    status,
-    handleAcceptRequest,
-    handleDeclineRequest,
-    handleGoOnline,
-    endShift,
-    handleArrivePickup,
-    handleStartTrip,
-    handleCompleteTrip,
-  ]);
+  }, [activeRequest, settings.soundAlerts]);
 
   const handleSubmitRating = (rating: number, tipBonus: number) => {
     if (!activeRequest) return;
@@ -937,6 +952,8 @@ export default function App() {
     );
 
     setActiveRequest(null);
+    dispatchTriggeredRef.current = false;
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
     sendNotification(
       'Trip Paid',
@@ -946,39 +963,81 @@ export default function App() {
   };
 
   const handleConfirmCancel = (reason: string) => {
-    cancelNavigationSpeech();
     setShowCancelModal(false);
     setActiveRequest(null);
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
+    setAwaitingRiderReply(false);
+    setRiderNoResponseSec(0);
     setCompletionRate((r) => Math.max(85, r - 1));
+    dispatchTriggeredRef.current = false;
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
     addToast('Ride Cancelled', reason, 'info');
   };
 
-  // Bid Jobs Marketplace handlers
+  // Bolt Flex Bid Jobs Marketplace handlers (Accept / Counter-bid / Cancel / Taken by other driver)
   const handlePlaceMarketplaceBid = (jobId: string, amount: number) => {
     setBidJobs((prev) =>
-      prev.map((j) => (j.id === jobId ? { ...j, driverBid: amount, bidStatus: 'pending' } : j))
+      prev.map((j) =>
+        j.id === jobId
+          ? { ...j, driverBid: amount, customerCounterFare: undefined, bidStatus: 'pending' }
+          : j
+      )
     );
 
     setTimeout(() => {
       setBidJobs((prev) =>
         prev.map((j) => {
-          if (j.id !== jobId) return j;
-          const accepted = amount <= j.suggestedFare * 1.35;
-          if (accepted) {
+          if (j.id !== jobId || j.bidStatus !== 'pending') return j;
+          const ratio = amount / j.suggestedFare;
+          if (ratio <= 1.2) {
             sendNotification(
-              'Bid Accepted!',
+              'Bolt Flex Bid Accepted!',
               `${j.riderName} accepted your ${j.currency}${amount.toFixed(2)} offer.`,
               'success'
             );
+            return { ...j, bidStatus: 'accepted' };
           }
-          return { ...j, bidStatus: accepted ? 'accepted' : 'declined' };
+          if (ratio <= 1.45) {
+            const counter = Number(((j.suggestedFare + amount) / 2).toFixed(2));
+            sendNotification(
+              'Customer Counter-Bid',
+              `${j.riderName} countered with ${j.currency}${counter.toFixed(2)}.`,
+              'info'
+            );
+            return { ...j, customerCounterFare: counter, bidStatus: 'countered' };
+          }
+          return {
+            ...j,
+            bidStatus: 'taken_by_other',
+            statusNote: 'Another driver accepted a lower fare before confirmation.',
+          };
         })
       );
-    }, 1100);
+    }, 1800);
+  };
+
+  const handleCancelMarketplaceBid = (jobId: string) => {
+    setBidJobs((prev) =>
+      prev.map((j) => (j.id === jobId ? { ...j, bidStatus: 'cancelled' } : j))
+    );
+    addToast('Bid Cancelled', 'Your Bolt Flex bid was withdrawn', 'info');
+  };
+
+  const handleAcceptCounterBid = (jobId: string) => {
+    setBidJobs((prev) =>
+      prev.map((j) => {
+        if (j.id !== jobId || j.customerCounterFare === undefined) return j;
+        sendNotification(
+          'Counter-Bid Accepted',
+          `Ride locked in at ${j.currency}${j.customerCounterFare.toFixed(2)}.`,
+          'success'
+        );
+        return { ...j, driverBid: j.customerCounterFare, bidStatus: 'accepted' };
+      })
+    );
   };
 
   const handleStartWonBidJob = async (job: BidJobOffer) => {
@@ -1017,6 +1076,8 @@ export default function App() {
       maneuversToPickup: toPickup.maneuvers,
       maneuversToDropoff: toDropoff.maneuvers,
       allowBid: false,
+      isOutOfCity: job.category === 'Bolt City',
+      willRiderReply: Math.random() > 0.5,
     };
 
     setBidJobs((prev) => prev.filter((b) => b.id !== job.id));
@@ -1026,10 +1087,13 @@ export default function App() {
     setActiveManeuvers(req.maneuversToPickup);
     setCurrentManeuverIndex(0);
     routeIndexRef.current = 0;
+    setChatMessages([]);
+    setUnreadChatCount(0);
+    setAwaitingRiderReply(false);
+    setRiderNoResponseSec(0);
     setStatus('EN_ROUTE_PICKUP');
     setActiveTab('map');
     playSuccessTone(settings.soundAlerts);
-    speakNavigationCue(`Starting bid job. Navigate to ${req.pickupAddress}`, settings.voiceNavigation);
   };
 
   // New Account Registration completion
@@ -1152,24 +1216,6 @@ export default function App() {
     }
   };
 
-  const handleToggleVoiceMic = async () => {
-    if (voiceSnap.isMicActive) {
-      dynamicIslandVoiceManager.stopMicSession();
-      addToast('Voice Mic Off', 'Dynamic Island voice commands paused', 'info');
-    } else {
-      const ok = await dynamicIslandVoiceManager.startMicSession();
-      if (ok) {
-        addToast('Voice Mic Active', 'Say "accept", "decline", "go online", or "next"', 'success');
-      } else {
-        addToast(
-          'Microphone Blocked',
-          dynamicIslandVoiceManager.permissionError || 'Could not start microphone.',
-          'alert'
-        );
-      }
-    }
-  };
-
   const handleSendChat = (text: string) => {
     const now = new Date();
     const ts = `${now.getHours().toString().padStart(2, '0')}:${now
@@ -1181,19 +1227,98 @@ export default function App() {
       { id: `m-${Date.now()}`, sender: 'driver', text, timestamp: ts },
     ]);
 
-    setTimeout(() => {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: `r-${Date.now()}`,
-          sender: 'rider',
-          text: "Thanks! I'm standing right outside by the main entrance.",
-          timestamp: ts,
-        },
-      ]);
-      setUnreadChatCount((c) => (showChat ? 0 : c + 1));
-      sendNotification('New Rider Message', 'Rider replied to your message', 'message');
-    }, 1300);
+    if (status === 'EN_ROUTE_PICKUP' || status === 'ARRIVED_PICKUP') {
+      setAwaitingRiderReply(true);
+      setRiderNoResponseSec(0);
+    }
+
+    if (activeRequest?.willRiderReply) {
+      setTimeout(() => {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `r-${Date.now()}`,
+            sender: 'rider',
+            text: "Thanks! I'm standing right outside by the main entrance.",
+            timestamp: ts,
+          },
+        ]);
+        setAwaitingRiderReply(false);
+        setRiderNoResponseSec(0);
+        setUnreadChatCount((c) => (showChat ? 0 : c + 1));
+        sendNotification('New Rider Message', 'Rider replied to your message', 'message');
+      }, 2200);
+    }
+  };
+
+  const noResponseFeeAmount = activeRequest
+    ? Math.max(3.0, Number((activeRequest.estimatedFare * 0.2).toFixed(2)))
+    : 3.0;
+
+  const handleWaitLongerNoResponse = () => {
+    setRiderNoResponseSec(0);
+    addToast('Waiting Longer', 'Extended 2-minute customer wait timer', 'info');
+  };
+
+  const handleCancelNoResponseCollectFee = () => {
+    if (!activeRequest) return;
+    const fee = noResponseFeeAmount;
+    const now = new Date();
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now
+      .getMinutes()
+      .toString()
+      .padStart(2, '0')}`;
+
+    const feeEntry: CompletedTrip = {
+      id: `FEE-${9043 + trips.length}`,
+      riderName: `${activeRequest.riderName} (No-Show Fee)`,
+      category: activeRequest.category,
+      paymentMethod: activeRequest.paymentMethod,
+      pickupAddress: activeRequest.pickupAddress,
+      dropoffAddress: 'Cancelled after 2m no-response',
+      completedAt: timeStr,
+      dayKey: todayKey,
+      distanceKm: activeRequest.pickupDistanceKm,
+      durationMin: 2,
+      grossFare: fee,
+      boltCommission: 0,
+      surgeBonus: 0,
+      tip: 0,
+      netEarnings: fee,
+    };
+
+    setTrips((prev) => [feeEntry, ...prev]);
+    setProfile((p) => ({
+      ...p,
+      bankBalance: Number((p.bankBalance + fee).toFixed(2)),
+    }));
+    setWeeklySeries((prev) =>
+      prev.map((d) =>
+        d.day === todayKey
+          ? {
+              ...d,
+              amount: Number((d.amount + fee).toFixed(2)),
+              trips: d.trips + 1,
+            }
+          : d
+      )
+    );
+
+    setShowChat(false);
+    setActiveRequest(null);
+    setActiveRoute([]);
+    setPreviewDropoffRoute([]);
+    setActiveManeuvers([]);
+    setAwaitingRiderReply(false);
+    setRiderNoResponseSec(0);
+    dispatchTriggeredRef.current = false;
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
+    setStatus('ONLINE_IDLE');
+    sendNotification(
+      'Cancellation Fee Credited',
+      `Customer didn't respond within 2:00. ${currency}${fee.toFixed(2)} added to earnings.`,
+      'success'
+    );
   };
 
   const handleSelectVehicle = (vehicleId: string) => {
@@ -1240,12 +1365,19 @@ export default function App() {
       {/* Desktop Left Navigation Rail */}
       <aside className="hidden lg:flex flex-col justify-between w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800 p-5 z-30">
         <div className="space-y-6">
-          <div className="flex items-center justify-between px-2">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-extrabold tracking-tight text-slate-950 dark:text-white">
-                Bolt
-              </span>
-              <span className="text-xs font-bold text-[#25B670]">Driver</span>
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2.5">
+              <img
+                src="/assets/aistudio/image_adf30014.png"
+                alt="Bolt Driver logo"
+                className="w-9 h-9 rounded-xl object-cover shadow-md border border-slate-200 dark:border-slate-700 shrink-0"
+              />
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-xl font-extrabold tracking-tight text-slate-950 dark:text-white">
+                  Bolt
+                </span>
+                <span className="text-xs font-bold text-[#25B670]">Driver</span>
+              </div>
             </div>
 
             <button
@@ -1291,7 +1423,7 @@ export default function App() {
             })}
           </nav>
 
-          {/* Direct New Driver Account Creation & Voice Mic Triggers */}
+          {/* Direct New Driver Account Creation */}
           <div className="space-y-2 pt-2">
             <button
               type="button"
@@ -1300,28 +1432,6 @@ export default function App() {
             >
               <UserPlus className="w-4 h-4 text-[#25B670]" />
               <span>Register New Account</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleToggleVoiceMic}
-              className={`w-full h-11 px-3.5 rounded-2xl border flex items-center justify-between text-xs font-bold transition-colors ${
-                voiceSnap.isMicActive
-                  ? 'bg-[#34D186]/15 border-[#34D186] text-slate-950 dark:text-white'
-                  : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                {voiceSnap.isMicActive ? (
-                  <Mic className="w-4 h-4 text-[#25B670]" />
-                ) : (
-                  <MicOff className="w-4 h-4 text-slate-400" />
-                )}
-                <span>Voice Commands</span>
-              </span>
-              <span className="text-[10px] font-semibold opacity-80">
-                {voiceSnap.isMicActive ? 'Listening' : 'Off'}
-              </span>
             </button>
           </div>
         </div>
@@ -1342,35 +1452,9 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="relative flex-1 h-full overflow-hidden">
-        {/* Dynamic Island Live Voice Command Pill */}
-        {voiceSnap.isMicActive && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[460] bg-slate-950 text-white rounded-full px-4 py-2 shadow-2xl border border-white/15 flex items-center gap-3 max-w-[92vw]">
-            <div className="flex items-center gap-1 h-4">
-              {voiceSnap.levels.map((lvl, idx) => (
-                <span
-                  key={idx}
-                  className="w-1 rounded-full bg-[#34D186] transition-all duration-75"
-                  style={{ height: `${Math.round(4 + lvl * 12)}px` }}
-                />
-              ))}
-            </div>
-            <span className="text-xs font-bold truncate max-w-[180px]">
-              {voiceSnap.lastTranscript || 'Listening: "accept", "go online"...'}
-            </span>
-            <button
-              type="button"
-              onClick={handleToggleVoiceMic}
-              aria-label="Stop voice mic"
-              className="text-slate-400 hover:text-white"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
         {/* Global In-App Toasts Stack */}
         {toasts.length > 0 && (
-          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[470] flex flex-col gap-2 items-center pointer-events-none w-full max-w-sm px-4">
+          <div className="absolute top-[max(4.25rem,calc(env(safe-area-inset-top)+3.5rem))] left-1/2 -translate-x-1/2 z-[470] flex flex-col gap-2 items-center pointer-events-none w-full max-w-sm px-4">
             {toasts.map((t) => (
               <div
                 key={t.id}
@@ -1400,47 +1484,68 @@ export default function App() {
               previewDropoffRoute={previewDropoffRoute}
               currentManeuver={activeManeuvers[currentManeuverIndex] || null}
               surgeZones={surgeZones}
+              ranks={ranks}
+              activeRankId={activeRankId}
               darkMode={settings.darkMode}
-              voiceEnabled={settings.voiceNavigation}
+              soundEnabled={settings.soundAlerts}
               isLiveGps={isLiveGps}
               gpsLoading={gpsLoading}
               currentCityId={currentCityId}
               destinationTarget={settings.destinationFilter.targetCoords}
               onRequestLiveGps={handleRequestLiveGps}
               onSelectCity={handleSelectCity}
-              onToggleVoice={() => {
-                const next = !settings.voiceNavigation;
-                if (!next) cancelNavigationSpeech();
-                setSettings((s) => ({ ...s, voiceNavigation: next }));
+              onToggleSound={() => {
+                const next = !settings.soundAlerts;
+                setSettings((s) => ({ ...s, soundAlerts: next }));
                 addToast(
-                  'Voice Navigation',
-                  next ? 'Spoken directions enabled' : 'Spoken directions muted',
+                  'Navigation Sounds',
+                  next ? 'Turn chimes & alert tones enabled' : 'Navigation sounds muted',
                   'info'
                 );
               }}
               onSelectSurgeZone={(zone: SurgeZone) =>
                 addToast(
-                  `${zone.label}`,
-                  `${zone.multiplier.toFixed(1)}x surge demand active`,
+                  `${zone.label} Surge`,
+                  `${zone.multiplier.toFixed(1)}x multiplier active in ${zone.label}`,
                   'info'
                 )
               }
+              onSelectRank={(rank: TaxiRank) => {
+                if (activeRankId === rank.id) {
+                  setActiveRankId(null);
+                  setRankQueuePos(null);
+                  addToast('Left Rank', `Exited queue at ${rank.name}`, 'info');
+                } else {
+                  setActiveRankId(rank.id);
+                  setRankQueuePos(rank.queueCount + 1);
+                  addToast(
+                    'Joined Taxi Rank',
+                    `${rank.name} · Position #${rank.queueCount + 1} (${rank.avgFareBoost})`,
+                    'success'
+                  );
+                }
+              }}
               onOpenSafety={() => setShowSafetyModal(true)}
             />
 
-            {/* Floating Top Bar on Map */}
+            {/* Floating Top Bar on Map — non-overlapping alignment */}
             {status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS' && (
-              <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between pointer-events-none z-[400]">
-                <div className="pointer-events-auto flex items-center gap-1 bg-slate-950/92 dark:bg-slate-900/95 text-white rounded-full pl-4 pr-2 py-1.5 shadow-xl border border-white/10">
+              <div className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-2.5 right-2.5 lg:left-3.5 lg:right-20 flex items-center justify-between pointer-events-none z-[400]">
+                <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 bg-slate-950/92 dark:bg-slate-900/95 text-white rounded-full pl-1 pr-1 py-0.5 sm:py-1 shadow-xl border border-white/10 max-w-[calc(100%-5.5rem)] sm:max-w-none">
+                  <img
+                    src="/assets/aistudio/image_adf30014.png"
+                    alt="Bolt Driver"
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover border border-white/15 shrink-0 lg:hidden"
+                  />
                   <button
                     type="button"
                     onClick={() => setActiveTab('earnings')}
-                    className="text-left pr-2"
+                    className="text-left pl-0 lg:pl-2 pr-1 min-w-0"
                   >
-                    <div className="text-[10px] font-semibold text-slate-400 leading-none">
+                    <div className="text-[10px] font-semibold text-slate-400 leading-none truncate">
                       Today ({todayKey}) · {isLiveGps ? 'GPS' : activeCity.name}
                     </div>
-                    <div className="text-base font-extrabold font-mono-num leading-tight">
+                    <div className="text-xs sm:text-base font-extrabold font-mono-num leading-tight">
                       {hideEarningsPill
                         ? `${currency}••••`
                         : `${currency}${todayEarnings.toFixed(2)}`}
@@ -1450,43 +1555,26 @@ export default function App() {
                     type="button"
                     onClick={() => setHideEarningsPill((h) => !h)}
                     aria-label={hideEarningsPill ? 'Show earnings' : 'Hide earnings'}
-                    className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-slate-300"
+                    className="w-8 h-8 sm:w-9 sm:h-9 rounded-full hover:bg-white/10 flex items-center justify-center text-slate-300 shrink-0"
                   >
                     {hideEarningsPill ? (
-                      <Eye className="w-4 h-4" />
+                      <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     ) : (
-                      <EyeOff className="w-4 h-4" />
+                      <EyeOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     )}
                   </button>
                 </div>
 
-                {/* Quick Mobile Actions */}
-                <div className="flex items-center gap-2 pointer-events-auto lg:hidden">
-                  <button
-                    type="button"
-                    onClick={handleToggleVoiceMic}
-                    aria-label="Toggle voice commands"
-                    className={`w-11 h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center ${
-                      voiceSnap.isMicActive
-                        ? 'bg-[#34D186] text-slate-950 border-[#28B872]'
-                        : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-slate-700'
-                    }`}
-                  >
-                    {voiceSnap.isMicActive ? (
-                      <Mic className="w-5 h-5" />
-                    ) : (
-                      <MicOff className="w-5 h-5" />
-                    )}
-                  </button>
-
+                {/* Quick Mobile Actions (kept inside top row, clear of right map rail below) */}
+                <div className="flex items-center gap-1.5 pointer-events-auto lg:hidden shrink-0">
                   {notificationPermission !== 'granted' && (
                     <button
                       type="button"
                       onClick={handleEnablePush}
                       aria-label="Enable push notifications"
-                      className="w-11 h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-amber-500"
+                      className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-amber-500 active:scale-95 transition-transform"
                     >
-                      <Bell className="w-5 h-5" />
+                      <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
                     </button>
                   )}
 
@@ -1494,45 +1582,45 @@ export default function App() {
                     type="button"
                     onClick={() => setShowAccountCreation(true)}
                     aria-label="Create new driver account"
-                    className="w-11 h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-[#25B670]"
+                    className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-[#25B670] active:scale-95 transition-transform"
                   >
-                    <UserPlus className="w-5 h-5" />
+                    <UserPlus className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                 </div>
               </div>
             )}
 
-            {/* 30-Day / Expired Insurance Warning Banner on Map */}
+            {/* 30-Day / Expired Insurance Warning Banner on Map (clears right rail buttons) */}
             {(showInsuranceWarning || isInsuranceExpired) && !isTripActive && (
-              <div className="absolute top-20 left-3.5 right-3.5 lg:left-5 lg:right-auto lg:w-[410px] z-[400]">
+              <div className="absolute top-[max(3.75rem,calc(env(safe-area-inset-top)+3rem))] left-2.5 right-[52px] sm:right-[66px] lg:left-5 lg:right-auto lg:w-[410px] z-[400]">
                 <div
-                  className={`rounded-2xl p-3.5 shadow-xl border flex items-center justify-between gap-3 ${
+                  className={`rounded-2xl p-2.5 sm:p-3 shadow-xl border flex items-center justify-between gap-2 ${
                     isInsuranceExpired
                       ? 'bg-rose-600 text-white border-rose-500'
                       : 'bg-amber-50 dark:bg-amber-950/95 text-amber-950 dark:text-amber-100 border-amber-300 dark:border-amber-800'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
                     <AlertTriangle className="w-5 h-5 shrink-0" />
-                    <div className="text-xs leading-snug">
-                      <div className="font-extrabold">
+                    <div className="text-xs leading-snug min-w-0">
+                      <div className="font-extrabold truncate">
                         {isInsuranceExpired
                           ? 'Vehicle Insurance Expired'
                           : `Insurance expires in ${insuranceDaysLeft} days`}
                       </div>
                       <div className="opacity-90 truncate">
                         {isInsuranceExpired
-                          ? 'Renew Hire & Reward policy to go online'
-                          : 'Tap Renew to update your certificate'}
+                          ? 'Renew cover to go online'
+                          : 'Tap Renew to update policy'}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
                       onClick={() => setIsInsuranceRenewalChatOpen(true)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold ${
+                      className={`px-3 min-h-[36px] rounded-xl text-xs font-extrabold ${
                         isInsuranceExpired
                           ? 'bg-white text-rose-700'
                           : 'bg-slate-900 text-white dark:bg-white dark:text-slate-950'
@@ -1547,7 +1635,7 @@ export default function App() {
                           setDismissedExpiries((prev) => [...prev, 'Vehicle Insurance'])
                         }
                         aria-label="Dismiss insurance warning"
-                        className="p-1 opacity-70 hover:opacity-100"
+                        className="w-9 h-9 rounded-lg flex items-center justify-center opacity-75 hover:opacity-100"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -1559,13 +1647,13 @@ export default function App() {
 
             {/* Masked Call Toast Banner */}
             {callBanner && (
-              <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[450] bg-slate-950 text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-bold">
-                <PhoneCall className="w-4 h-4 text-[#34D186]" />
-                <span>{callBanner}</span>
+              <div className="absolute top-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] left-1/2 -translate-x-1/2 z-[450] bg-slate-950 text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-bold max-w-[90vw]">
+                <PhoneCall className="w-4 h-4 text-[#34D186] shrink-0" />
+                <span className="truncate">{callBanner}</span>
                 <button
                   type="button"
                   onClick={() => setCallBanner(null)}
-                  className="text-slate-400 hover:text-white"
+                  className="text-slate-400 hover:text-white p-1 shrink-0"
                   aria-label="End simulated call"
                 >
                   <X className="w-4 h-4" />
@@ -1576,7 +1664,9 @@ export default function App() {
             {/* Dispatch Bottom Sheet / Docked Card */}
             <div
               className={`absolute left-0 right-0 lg:left-5 lg:right-auto lg:bottom-5 lg:w-[410px] z-[400] transition-all ${
-                isTripActive ? 'bottom-0' : 'bottom-16 lg:bottom-5'
+                isTripActive
+                  ? 'bottom-0'
+                  : 'bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] lg:bottom-5'
               }`}
             >
               {status === 'INCOMING_REQUEST' && activeRequest ? (
@@ -1600,9 +1690,24 @@ export default function App() {
                   openBidJobsCount={bidJobs.length}
                   lastRefreshLabel={lastBackgroundSync}
                   backgroundRefreshEnabled={settings.backgroundRefresh}
+                  nextRequestWaitLeft={nextRequestWaitLeft}
+                  autoAccept={settings.autoAccept}
+                  activeRank={activeRank}
+                  rankQueuePos={rankQueuePos}
+                  awaitingRiderReply={awaitingRiderReply}
+                  riderNoResponseSec={riderNoResponseSec}
+                  noResponseFeeAmount={noResponseFeeAmount}
                   onGoOnline={handleGoOnline}
                   onGoOffline={endShift}
-                  onSimulateRequest={triggerRideOffer}
+                  onStartBreak={handleStartBreak}
+                  onResumeFromBreak={handleResumeFromBreak}
+                  onToggleAutoAccept={() =>
+                    setSettings((s) => ({ ...s, autoAccept: !s.autoAccept }))
+                  }
+                  onLeaveRank={() => {
+                    setActiveRankId(null);
+                    setRankQueuePos(null);
+                  }}
                   onOpenBidJobs={() => setShowBidJobsModal(true)}
                   onOpenPreferences={() => setShowPrefs(true)}
                   onOpenDestination={() => setShowDestination(true)}
@@ -1629,6 +1734,8 @@ export default function App() {
                     setTimeout(() => setCallBanner(null), 4000);
                   }}
                   onOpenCancelModal={() => setShowCancelModal(true)}
+                  onWaitLongerNoResponse={handleWaitLongerNoResponse}
+                  onCancelNoResponseCollectFee={handleCancelNoResponseCollectFee}
                   onSubmitRating={handleSubmitRating}
                 />
               )}
@@ -1698,7 +1805,6 @@ export default function App() {
             notificationPermission={notificationPermission}
             lastBackgroundSync={lastBackgroundSync}
             notificationsLog={notificationsLog}
-            isMicActive={voiceSnap.isMicActive}
             isInsuranceExpired={isInsuranceExpired}
             onSelectVehicle={handleSelectVehicle}
             onUpdateSettings={(next) => setSettings((s) => ({ ...s, ...next }))}
@@ -1706,7 +1812,6 @@ export default function App() {
             onSignInGoogle={handleSignInGoogle}
             onSignOutGoogle={handleSignOutGoogle}
             onOpenInsurance={() => setActiveTab('insurance')}
-            onToggleVoiceMic={handleToggleVoiceMic}
             onEnablePushNotifications={handleEnablePush}
             onSendTestNotification={() => {
               if (notificationPermission !== 'granted') {
@@ -1729,34 +1834,36 @@ export default function App() {
 
       {/* Mobile Fixed Bottom Navigation Bar (5 tabs) */}
       {!(activeTab === 'map' && isTripActive) && (
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[420] h-16 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 items-center">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setActiveTab(item.id)}
-                className="flex flex-col items-center justify-center h-full min-w-[44px]"
-              >
-                <Icon
-                  className={`w-5 h-5 transition-colors ${
-                    active ? 'text-[#25B670]' : 'text-slate-500 dark:text-slate-400'
-                  }`}
-                />
-                <span
-                  className={`text-[10px] font-bold mt-1 ${
-                    active
-                      ? 'text-slate-950 dark:text-white'
-                      : 'text-slate-500 dark:text-slate-400'
-                  }`}
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[420] pb-safe bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800">
+          <div className="h-16 grid grid-cols-5 items-center">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const active = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveTab(item.id)}
+                  className="flex flex-col items-center justify-center h-full min-w-[44px] active:scale-95 transition-transform"
                 >
-                  {item.label}
-                </span>
-              </button>
-            );
-          })}
+                  <Icon
+                    className={`w-5 h-5 transition-colors ${
+                      active ? 'text-[#25B670]' : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  />
+                  <span
+                    className={`text-[10px] font-bold mt-1 ${
+                      active
+                        ? 'text-slate-950 dark:text-white'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </nav>
       )}
 
@@ -1787,12 +1894,16 @@ export default function App() {
       {showBidJobsModal && (
         <BidJobsModal
           jobs={bidJobs}
+          boltFlexEnabled={settings.enabledCategories.includes('Bolt Flex')}
           onPlaceBid={handlePlaceMarketplaceBid}
+          onCancelBid={handleCancelMarketplaceBid}
+          onAcceptCounterBid={handleAcceptCounterBid}
           onStartWonJob={handleStartWonBidJob}
           onRefreshJobs={() => {
             setBidJobs(generateBidJobsNear(driverPos, currentCityId, settings.enabledCategories));
-            addToast('Bid Marketplace', 'Refreshed nearby bid offers', 'info');
+            addToast('Bolt Flex', 'Refreshed nearby bid offers', 'info');
           }}
+          onOpenPreferences={() => setShowPrefs(true)}
           onClose={() => setShowBidJobsModal(false)}
         />
       )}
@@ -1804,7 +1915,13 @@ export default function App() {
           availableCategories={activeVehicle.categories}
           isInsuranceExpired={isInsuranceExpired}
           onOpenInsuranceRenewal={() => setIsInsuranceRenewalChatOpen(true)}
-          onUpdateSettings={(next) => setSettings((s) => ({ ...s, ...next }))}
+          onUpdateSettings={(next) => {
+            setSettings((s) => ({ ...s, ...next }));
+            if (next.dispatchWaitSec !== undefined) {
+              dispatchTriggeredRef.current = false;
+              setNextRequestWaitLeft(next.dispatchWaitSec);
+            }
+          }}
           onClose={() => setShowPrefs(false)}
         />
       )}
@@ -1842,7 +1959,13 @@ export default function App() {
         <RiderChatModal
           riderName={activeRequest.riderName}
           messages={chatMessages}
+          currency={currency}
+          awaitingRiderReply={awaitingRiderReply}
+          riderNoResponseSec={riderNoResponseSec}
+          noResponseFeeAmount={noResponseFeeAmount}
           onSendMessage={handleSendChat}
+          onWaitLonger={handleWaitLongerNoResponse}
+          onCancelCollectFee={handleCancelNoResponseCollectFee}
           onClose={() => setShowChat(false)}
         />
       )}
@@ -1856,6 +1979,8 @@ export default function App() {
       )}
 
       {showSafetyModal && <SafetyModal onClose={() => setShowSafetyModal(false)} />}
+
+      <BootScreen isVisible={showBootScreen} onComplete={() => setShowBootScreen(false)} />
     </div>
   );
 }

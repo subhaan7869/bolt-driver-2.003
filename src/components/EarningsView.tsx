@@ -64,8 +64,8 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
   };
 
   return (
-    <div className="w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-24 lg:pb-8">
-      <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+    <div className="w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:pb-8">
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 space-y-5 sm:space-y-6">
         {/* Header & Segmented Filter */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -77,13 +77,13 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
             </p>
           </div>
 
-          <div className="inline-flex items-center p-1 bg-slate-200/70 dark:bg-slate-900 rounded-xl self-start">
+          <div className="w-full sm:w-auto grid grid-cols-3 sm:inline-flex items-center p-1 bg-slate-200/70 dark:bg-slate-900 rounded-xl self-start">
             {(['today', 'week', 'month'] as const).map((tf) => (
               <button
                 key={tf}
                 type="button"
                 onClick={() => setTimeframe(tf)}
-                className={`px-4 py-2 text-xs font-bold rounded-lg capitalize transition-colors whitespace-nowrap ${
+                className={`min-h-[40px] px-3 sm:px-4 py-2 text-xs font-bold rounded-lg capitalize transition-colors whitespace-nowrap text-center ${
                   timeframe === tf
                     ? 'bg-white dark:bg-slate-800 text-slate-950 dark:text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -108,8 +108,8 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
         {/* Top Summary + Payout Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800 space-y-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
                 <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   {timeframe === 'today'
                     ? `Today (${todayKey}) net earnings`
@@ -117,7 +117,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                     ? 'This week net earnings'
                     : 'This month net earnings'}
                 </div>
-                <div className="text-4xl font-extrabold text-slate-950 dark:text-white font-mono-num mt-1">
+                <div className="text-3xl sm:text-4xl font-extrabold text-slate-950 dark:text-white font-mono-num mt-1">
                   {currency}
                   {displayedTotal.toFixed(2)}
                 </div>
@@ -130,7 +130,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                 </div>
               </div>
 
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   Selected day ({activeDayObj.day})
                 </div>
@@ -291,15 +291,16 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
       {/* Trip Receipt Modal */}
       {selectedTrip && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Receipt className="w-5 h-5 text-[#25B670]" />
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-950 dark:text-white">
+          <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[85dvh] overflow-y-auto">
+            <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto sm:hidden" />
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Receipt className="w-5 h-5 text-[#25B670] shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="text-base font-extrabold text-slate-950 dark:text-white truncate">
                     Trip receipt · {selectedTrip.id}
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                     {selectedTrip.dayKey} at {selectedTrip.completedAt} · {selectedTrip.riderName}
                   </p>
                 </div>
@@ -308,7 +309,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                 type="button"
                 onClick={() => setSelectedTrip(null)}
                 aria-label="Close receipt"
-                className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
+                className="w-11 h-11 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -387,7 +388,8 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
       {/* Cash Out Confirmation Modal */}
       {showCashOutModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+          <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+            <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto sm:hidden" />
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold text-slate-950 dark:text-white">
                 Instant cash out
@@ -396,7 +398,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                 type="button"
                 onClick={() => setShowCashOutModal(false)}
                 aria-label="Close cash out"
-                className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
+                className="w-11 h-11 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
               >
                 <X className="w-5 h-5" />
               </button>

@@ -1,4 +1,4 @@
-// Real Web Audio API navigation chimes + SpeechSynthesis turn-by-turn voice engine
+// Real Web Audio API navigation chimes and dispatch tones
 let audioCtx: AudioContext | null = null;
 
 function getAudioContext(): AudioContext | null {
@@ -99,29 +99,4 @@ export function playSuccessTone(enabled: boolean): void {
     { freq: 523.25, delay: 0, duration: 0.18, type: 'triangle', gain: 0.09 },
     { freq: 659.25, delay: 0.08, duration: 0.24, type: 'triangle', gain: 0.1 },
   ]);
-}
-
-export function speakNavigationCue(text: string, enabled: boolean): void {
-  if (!enabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-  try {
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.04;
-    utterance.pitch = 1.0;
-    utterance.volume = 0.92;
-    utterance.lang = 'en-GB';
-    window.speechSynthesis.speak(utterance);
-  } catch {
-    // Ignore
-  }
-}
-
-export function cancelNavigationSpeech(): void {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    try {
-      window.speechSynthesis.cancel();
-    } catch {
-      // Ignore
-    }
-  }
 }

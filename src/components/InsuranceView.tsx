@@ -62,8 +62,8 @@ export const InsuranceView: React.FC<InsuranceViewProps> = ({
   };
 
   return (
-    <div className="w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-24 lg:pb-8">
-      <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+    <div className="w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:pb-8">
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 space-y-5 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-extrabold text-slate-950 dark:text-white tracking-tight">
@@ -272,35 +272,35 @@ export const InsuranceView: React.FC<InsuranceViewProps> = ({
                   value={newDriverName}
                   onChange={(e) => setNewDriverName(e.target.value)}
                   placeholder="Add driver full name..."
-                  className="flex-1 h-10 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white"
+                  className="flex-1 min-w-0 h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white"
                 />
                 <button
                   type="submit"
                   aria-label="Add named driver"
-                  className="w-10 h-10 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 flex items-center justify-center shrink-0"
+                  className="w-11 h-11 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 flex items-center justify-center shrink-0"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
               </form>
 
               <div className="space-y-2">
-                <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 flex items-center justify-between text-xs font-bold">
-                  <span>{profile.fullName} (Primary Policyholder)</span>
-                  <span className="text-emerald-600 dark:text-emerald-400">Covered</span>
+                <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 flex items-center justify-between gap-2 text-xs font-bold">
+                  <span className="truncate">{profile.fullName} (Primary Policyholder)</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 shrink-0">Covered</span>
                 </div>
                 {profile.additionalDrivers.map((drv) => (
                   <div
                     key={drv}
-                    className="px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 flex items-center justify-between text-xs font-semibold"
+                    className="pl-3.5 pr-1.5 py-1.5 min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-800/70 flex items-center justify-between gap-2 text-xs font-semibold"
                   >
-                    <span>{drv}</span>
+                    <span className="truncate">{drv}</span>
                     <button
                       type="button"
                       onClick={() => onRemoveDriver(drv)}
                       aria-label={`Remove ${drv}`}
-                      className="text-rose-500 hover:text-rose-600 p-1"
+                      className="w-9 h-9 rounded-lg flex items-center justify-center text-rose-500 hover:text-rose-600 shrink-0"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 ))}
@@ -451,17 +451,20 @@ export const InsuranceRenewalChat: React.FC<InsuranceRenewalChatProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col h-[78vh] sm:h-[580px]">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-[#34D186]/20 text-[#25B670] flex items-center justify-center">
+      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col h-[82dvh] sm:h-[580px]">
+        <div className="pt-2.5 sm:hidden">
+          <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto" />
+        </div>
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-[#34D186]/20 text-[#25B670] flex items-center justify-center shrink-0">
               <ShieldCheck className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-base font-extrabold text-slate-950 dark:text-white">
+            <div className="min-w-0">
+              <h3 className="text-base font-extrabold text-slate-950 dark:text-white truncate">
                 Guided Insurance Renewal
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                 Instant certificate update
               </p>
             </div>
@@ -470,7 +473,7 @@ export const InsuranceRenewalChat: React.FC<InsuranceRenewalChatProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close renewal chat"
-            className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
+            className="w-11 h-11 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -583,19 +586,19 @@ export const InsuranceRenewalChat: React.FC<InsuranceRenewalChatProps> = ({
 
         <form
           onSubmit={handleAsk}
-          className="p-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2"
+          className="px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-slate-100 dark:border-slate-800 flex items-center gap-2"
         >
           <input
             type="text"
             value={customQuestion}
             onChange={(e) => setCustomQuestion(e.target.value)}
             placeholder="Ask about coverage..."
-            className="flex-1 h-10 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none"
+            className="flex-1 min-w-0 h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none"
           />
           <button
             type="submit"
             aria-label="Send question"
-            className="w-10 h-10 rounded-xl bg-[#34D186] text-slate-950 flex items-center justify-center shrink-0"
+            className="w-11 h-11 rounded-xl bg-[#34D186] text-slate-950 flex items-center justify-center shrink-0"
           >
             <Send className="w-4 h-4" />
           </button>

@@ -1,6 +1,7 @@
 export type DriverStatus =
   | 'OFFLINE'
   | 'ONLINE_IDLE'
+  | 'ON_BREAK'
   | 'INCOMING_REQUEST'
   | 'EN_ROUTE_PICKUP'
   | 'ARRIVED_PICKUP'
@@ -9,7 +10,15 @@ export type DriverStatus =
 
 export type AppTab = 'map' | 'earnings' | 'activity' | 'account' | 'insurance';
 
-export type RideCategory = 'Bolt' | 'Comfort' | 'Bolt Green' | 'XL' | 'Pets' | 'Delivery';
+export type RideCategory =
+  | 'Bolt'
+  | 'Comfort'
+  | 'Bolt Green'
+  | 'Bolt Flex'
+  | 'Bolt City'
+  | 'XL'
+  | 'Pets'
+  | 'Delivery';
 
 export type PaymentMethod = 'Card' | 'Apple Pay' | 'Google Pay' | 'Cash';
 
@@ -27,6 +36,20 @@ export interface CityPreset {
   currency: string;
   center: LatLng;
   landmarks: { name: string; area: string; lat: number; lng: number }[];
+  intercityDestinations: {
+    name: string;
+    area: string;
+    lat: number;
+    lng: number;
+    distanceKm: number;
+  }[];
+  ranks: {
+    id: string;
+    name: string;
+    area: string;
+    lat: number;
+    lng: number;
+  }[];
 }
 
 export interface SurgeZone {
@@ -36,6 +59,16 @@ export interface SurgeZone {
   center: LatLng;
   radiusMeters: number;
   demandLevel: 'High' | 'Peak';
+}
+
+export interface TaxiRank {
+  id: string;
+  name: string;
+  area: string;
+  center: LatLng;
+  queueCount: number;
+  estWaitMin: number;
+  avgFareBoost: string;
 }
 
 export interface ManeuverStep {
@@ -75,6 +108,8 @@ export interface RideRequest {
   maneuversToPickup: ManeuverStep[];
   maneuversToDropoff: ManeuverStep[];
   allowBid: boolean;
+  isOutOfCity?: boolean;
+  willRiderReply?: boolean;
   note?: string;
 }
 
@@ -98,7 +133,16 @@ export interface BidJobOffer {
   paymentMethod: PaymentMethod;
   surgeMultiplier: number;
   driverBid?: number;
-  bidStatus: 'open' | 'pending' | 'accepted' | 'declined';
+  customerCounterFare?: number;
+  bidStatus:
+    | 'open'
+    | 'pending'
+    | 'countered'
+    | 'accepted'
+    | 'taken_by_other'
+    | 'cancelled'
+    | 'declined';
+  statusNote?: string;
 }
 
 export interface CompletedTrip {
@@ -188,10 +232,10 @@ export interface CampaignQuest {
 export interface DriverSettings {
   darkMode: boolean;
   soundAlerts: boolean;
-  voiceNavigation: boolean;
   autoAccept: boolean;
   acceptCash: boolean;
   allowBidOffers: boolean;
+  dispatchWaitSec: 60 | 120 | 180 | 300;
   minFareFilter: number;
   maxPickupKm: number;
   minRiderRating: number;

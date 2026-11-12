@@ -48,18 +48,16 @@ async function startServer() {
 
     const cartoUrl = hasCartoKey
       ? `https://${sub}.basemaps.cartocdn.com/${cartoPath}?key=${encodeURIComponent(rawKey)}`
-      : null;
+      : `https://${sub}.basemaps.cartocdn.com/${cartoPath}`;
 
     try {
       let tileResponse: globalThis.Response | null = null;
 
-      if (cartoUrl) {
-        const candidate = await fetch(cartoUrl, {
-          headers: { Accept: 'image/png,image/*;q=0.8' },
-        });
-        if (candidate.ok) {
-          tileResponse = candidate;
-        }
+      const candidate = await fetch(cartoUrl, {
+        headers: { Accept: 'image/png,image/*;q=0.8' },
+      });
+      if (candidate.ok) {
+        tileResponse = candidate;
       }
 
       // Clean OpenStreetMap fallback if CARTO_API_KEY is not configured yet or rejected

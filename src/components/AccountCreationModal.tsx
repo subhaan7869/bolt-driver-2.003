@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   FileText,
   Upload,
-  UserPlus,
   X,
 } from 'lucide-react';
 import { WORLD_CITIES, getFutureIsoDate } from '../data/worldMapData';
@@ -117,10 +116,10 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
 
     const categories: RideCategory[] =
       fuelType === 'Electric'
-        ? ['Bolt', 'Comfort', 'Bolt Green', 'Pets', 'Delivery']
+        ? ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City', 'Pets', 'Delivery']
         : fuelType === 'Hybrid'
-        ? ['Bolt', 'Bolt Green', 'XL', 'Delivery']
-        : ['Bolt', 'Delivery'];
+        ? ['Bolt', 'Bolt Green', 'Bolt Flex', 'Bolt City', 'XL', 'Delivery']
+        : ['Bolt', 'Bolt Flex', 'Bolt City', 'Delivery'];
 
     const insExpiry = getFutureIsoDate(365);
     const cleanPlate = plate.trim().toUpperCase();
@@ -177,35 +176,39 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh]">
-        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+    <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+      <div className="w-full max-w-[380px] sm:max-w-lg bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[78dvh] sm:max-h-[88dvh]">
+        <div className="px-3.5 py-2.5 sm:p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
             {step > 1 ? (
               <button
                 type="button"
                 onClick={() => setStep((s) => (s === 3 ? 2 : 1))}
                 aria-label="Previous step"
-                className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200"
+                className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200 shrink-0"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
             ) : (
-              <div className="w-9 h-9 rounded-xl bg-[#34D186]/20 text-[#25B670] flex items-center justify-center">
-                <UserPlus className="w-5 h-5" />
+              <div className="w-9 h-9 rounded-xl overflow-hidden bg-slate-950 border border-white/10 shadow-sm shrink-0">
+                <img
+                  src="/assets/aistudio/image_adf30014.png"
+                  alt="Bolt Driver logo"
+                  className="w-full h-full object-cover"
+                />
               </div>
             )}
-            <div>
-              <h2 className="text-lg font-extrabold text-slate-950 dark:text-white">
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-lg font-extrabold text-slate-950 dark:text-white truncate leading-tight">
                 Become a Bolt Driver
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
                 Step {step} of 3 ·{' '}
                 {step === 1
-                  ? 'Personal details & city'
+                  ? 'Personal details'
                   : step === 2
-                  ? 'Vehicle registration'
-                  : 'Documents & verification'}
+                  ? 'Vehicle details'
+                  : 'Documents'}
               </p>
             </div>
           </div>
@@ -214,44 +217,44 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close registration"
-            className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5 px-5 pt-3">
+        <div className="grid grid-cols-3 gap-1.5 px-3.5 sm:px-5 pt-2.5 shrink-0">
           {[1, 2, 3].map((s) => (
             <div
               key={s}
-              className={`h-1.5 rounded-full transition-colors ${
+              className={`h-1 sm:h-1.5 rounded-full transition-colors ${
                 s <= step ? 'bg-[#34D186]' : 'bg-slate-200 dark:bg-slate-800'
               }`}
             />
           ))}
         </div>
 
-        <div className="p-5 overflow-y-auto flex-1 space-y-4">
+        <div className="p-3.5 sm:p-5 overflow-y-auto flex-1 space-y-2.5 sm:space-y-3.5">
           <div className="flex justify-end">
             <button
               type="button"
               onClick={handleQuickFillDemo}
-              className="text-xs font-bold text-[#25B670] hover:underline"
+              className="text-[11px] sm:text-xs font-bold text-[#25B670] hover:underline"
             >
               Auto-fill step {step}
             </button>
           </div>
 
           {errorMsg && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-xs font-semibold text-rose-700 dark:text-rose-300">
+            <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-xs font-semibold text-rose-700 dark:text-rose-300">
               {errorMsg}
             </div>
           )}
 
           {step === 1 && (
-            <div className="space-y-3.5">
+            <div className="space-y-2.5 sm:space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
                   Full legal name
                 </label>
                 <input
@@ -259,12 +262,12 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="e.g. David Okafor"
-                  className="w-full h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
+                  className="w-full h-9 sm:h-11 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
                   Email address
                 </label>
                 <input
@@ -272,19 +275,19 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="driver@email.com"
-                  className="w-full h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
+                  className="w-full h-9 sm:h-11 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
                   Mobile number
                 </label>
-                <div className="flex gap-2">
+                <div className="flex gap-1.5 sm:gap-2">
                   <select
                     value={phoneCode}
                     onChange={(e) => setPhoneCode(e.target.value)}
-                    className="h-11 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm font-semibold text-slate-900 dark:text-white"
+                    className="h-9 sm:h-11 px-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white"
                   >
                     <option value="+44">UK +44</option>
                     <option value="+372">EE +372</option>
@@ -299,19 +302,19 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     placeholder="7700 900412"
-                    className="flex-1 h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
+                    className="flex-1 min-w-0 h-9 sm:h-11 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
                   Operating city
                 </label>
                 <select
                   value={cityId}
                   onChange={(e) => setCityId(e.target.value)}
-                  className="w-full h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm font-semibold text-slate-900 dark:text-white"
+                  className="w-full h-9 sm:h-11 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white"
                 >
                   {WORLD_CITIES.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -322,24 +325,24 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
                   Driver registration type
                 </label>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-2 gap-2">
                   {(['Independent', 'Fleet'] as const).map((t) => (
                     <button
                       key={t}
                       type="button"
                       onClick={() => setDriverType(t)}
-                      className={`py-3 px-3 rounded-2xl border text-left transition-all ${
+                      className={`py-2 px-2.5 rounded-xl border text-left transition-all ${
                         driverType === t
                           ? 'bg-[#34D186]/15 border-[#34D186] text-slate-950 dark:text-white'
                           : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                       }`}
                     >
-                      <div className="text-sm font-extrabold">{t}</div>
-                      <div className="text-[11px] opacity-80">
-                        {t === 'Independent' ? 'Drive with your own car' : 'Drive via a fleet partner'}
+                      <div className="text-xs sm:text-sm font-extrabold">{t}</div>
+                      <div className="text-[10px] opacity-80 truncate">
+                        {t === 'Independent' ? 'Own vehicle' : 'Fleet partner'}
                       </div>
                     </button>
                   ))}
@@ -347,7 +350,7 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
                   Referral or fleet code (optional)
                 </label>
                 <input
@@ -355,7 +358,7 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
                   value={referralCode}
                   onChange={(e) => setReferralCode(e.target.value)}
                   placeholder="BOLT2026"
-                  className="w-full h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
+                  className="w-full h-9 sm:h-11 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
                 />
               </div>
             </div>
@@ -513,18 +516,18 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
           )}
         </div>
 
-        <div className="p-5 border-t border-slate-100 dark:border-slate-800">
+        <div className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800 shrink-0">
           <button
             type="button"
             onClick={handleNext}
-            className="w-full h-13 rounded-2xl bg-[#34D186] hover:bg-[#29BE77] text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+            className="w-full h-10 sm:h-12 rounded-xl sm:rounded-2xl bg-[#34D186] hover:bg-[#29BE77] text-slate-950 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors"
           >
             {step < 3 ? (
               <span>Continue</span>
             ) : (
               <>
                 <Check className="w-4 h-4 stroke-[2.5]" />
-                <span>Create Driver Account &amp; Go Drive</span>
+                <span>Create Driver Account</span>
               </>
             )}
           </button>

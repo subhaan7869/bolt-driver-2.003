@@ -10,6 +10,7 @@ import {
   RideCategory,
   RideRequest,
   SurgeZone,
+  TaxiRank,
   Vehicle,
 } from '../types/driver';
 
@@ -30,6 +31,17 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Canary Wharf, E14', area: 'Docklands', lat: 51.5054, lng: -0.0235 },
       { name: 'Victoria Station, SW1V', area: 'Victoria', lat: 51.4952, lng: -0.1439 },
     ],
+    intercityDestinations: [
+      { name: 'Oxford City Centre (Carfax)', area: 'Oxford · Out of City', lat: 51.752, lng: -1.2577, distanceKm: 92 },
+      { name: 'Cambridge Market Square', area: 'Cambridge · Out of City', lat: 52.2053, lng: 0.1218, distanceKm: 88 },
+      { name: 'Brighton Pier & Seafront', area: 'Brighton · Out of City', lat: 50.8225, lng: -0.1372, distanceKm: 84 },
+      { name: 'Reading Station Plaza', area: 'Reading · Out of City', lat: 51.4587, lng: -0.9718, distanceKm: 64 },
+    ],
+    ranks: [
+      { id: 'rank-ldn-kx', name: "King's Cross Eurostar Rank", area: 'St Pancras', lat: 51.5315, lng: -0.1261 },
+      { id: 'rank-ldn-pad', name: 'Paddington Express Rank', area: 'Paddington', lat: 51.5162, lng: -0.1769 },
+      { id: 'rank-ldn-cw', name: 'Canary Wharf Jubilee Rank', area: 'Docklands', lat: 51.5048, lng: -0.0195 },
+    ],
   },
   {
     id: 'tallinn',
@@ -44,6 +56,16 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Rotermann Quarter', area: 'Harju', lat: 59.439, lng: 24.7567 },
       { name: 'Kadriorg Palace Park', area: 'Kadriorg', lat: 59.4385, lng: 24.7909 },
       { name: 'Noblessner Marina', area: 'Põhja-Tallinn', lat: 59.4501, lng: 24.7267 },
+    ],
+    intercityDestinations: [
+      { name: 'Tartu Town Hall Square', area: 'Tartu · Out of City', lat: 58.3806, lng: 26.7251, distanceKm: 185 },
+      { name: 'Pärnu Beach Promenade', area: 'Pärnu · Out of City', lat: 58.3749, lng: 24.5042, distanceKm: 128 },
+      { name: 'Rakvere Central Square', area: 'Rakvere · Out of City', lat: 59.3464, lng: 26.3558, distanceKm: 98 },
+    ],
+    ranks: [
+      { id: 'rank-tll-air', name: 'Tallinn Airport (TLL) Rank', area: 'Ülemiste', lat: 59.4152, lng: 24.8315 },
+      { id: 'rank-tll-port', name: 'Port Terminal A Rank', area: 'Sadama', lat: 59.4442, lng: 24.7642 },
+      { id: 'rank-tll-balt', name: 'Balti Jaam Station Rank', area: 'Kalamaja', lat: 59.4404, lng: 24.7372 },
     ],
   },
   {
@@ -60,6 +82,16 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Warschauer Straße', area: 'Friedrichshain', lat: 52.5064, lng: 13.4494 },
       { name: 'Rosenthaler Platz', area: 'Mitte', lat: 52.5298, lng: 13.4014 },
     ],
+    intercityDestinations: [
+      { name: 'Potsdam Sanssouci Gate', area: 'Potsdam · Out of City', lat: 52.4009, lng: 13.0385, distanceKm: 38 },
+      { name: 'BER Airport Terminal 1', area: 'Brandenburg · Out of City', lat: 52.3649, lng: 13.501, distanceKm: 28 },
+      { name: 'Leipzig Hauptbahnhof', area: 'Leipzig · Out of City', lat: 51.3455, lng: 12.3818, distanceKm: 189 },
+    ],
+    ranks: [
+      { id: 'rank-ber-hbf', name: 'Hauptbahnhof Taxi Rank', area: 'Moabit', lat: 52.5258, lng: 13.3688 },
+      { id: 'rank-ber-alex', name: 'Alexanderplatz Rank', area: 'Mitte', lat: 52.5212, lng: 13.4148 },
+      { id: 'rank-ber-ku', name: 'Zoo / Ku-Damm Rank', area: 'Charlottenburg', lat: 52.5065, lng: 13.3335 },
+    ],
   },
   {
     id: 'paris',
@@ -75,6 +107,16 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Saint-Germain-des-Prés', area: '6e', lat: 48.854, lng: 2.3328 },
       { name: 'Gare de Lyon', area: '12e', lat: 48.8443, lng: 2.3744 },
     ],
+    intercityDestinations: [
+      { name: 'Château de Versailles', area: 'Versailles · Out of City', lat: 48.8049, lng: 2.1204, distanceKm: 24 },
+      { name: 'Disneyland Paris Resort', area: 'Marne-la-Vallée · Out of City', lat: 48.8722, lng: 2.7758, distanceKm: 42 },
+      { name: 'CDG Terminal 2E', area: 'Roissy · Out of City', lat: 49.0047, lng: 2.5784, distanceKm: 31 },
+    ],
+    ranks: [
+      { id: 'rank-par-gdn', name: 'Gare du Nord Eurostar Rank', area: '10e', lat: 48.8814, lng: 2.3559 },
+      { id: 'rank-par-gdl', name: 'Gare de Lyon Rank', area: '12e', lat: 48.8449, lng: 2.3738 },
+      { id: 'rank-par-ch', name: 'Champs-Élysées George V Rank', area: '8e', lat: 48.8712, lng: 2.3019 },
+    ],
   },
   {
     id: 'warsaw',
@@ -88,6 +130,16 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Plac Zbawiciela', area: 'Mokotów', lat: 52.2196, lng: 21.018 },
       { name: 'Krakowskie Przedmieście', area: 'Old Town', lat: 52.2435, lng: 21.0155 },
       { name: 'Hala Koszyki', area: 'Centrum', lat: 52.222, lng: 21.0114 },
+    ],
+    intercityDestinations: [
+      { name: 'Łódź Fabryczna Station', area: 'Łódź · Out of City', lat: 51.7689, lng: 19.4694, distanceKm: 135 },
+      { name: 'Modlin Airport Terminal', area: 'Nowy Dwór · Out of City', lat: 52.4511, lng: 20.6518, distanceKm: 39 },
+      { name: 'Radom Central Plaza', area: 'Radom · Out of City', lat: 51.4027, lng: 21.1471, distanceKm: 102 },
+    ],
+    ranks: [
+      { id: 'rank-waw-ctr', name: 'Warszawa Centralna Rank', area: 'Śródmieście', lat: 52.2294, lng: 21.0042 },
+      { id: 'rank-waw-onz', name: 'Rondo ONZ Business Rank', area: 'Centrum', lat: 52.2336, lng: 20.9992 },
+      { id: 'rank-waw-old', name: 'Castle Square Rank', area: 'Old Town', lat: 52.2476, lng: 21.0138 },
     ],
   },
   {
@@ -103,6 +155,16 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'City Walk Courtyard', area: 'Al Wasl', lat: 25.2073, lng: 55.2623 },
       { name: 'Jumeirah Beach Residence', area: 'Dubai Marina', lat: 25.0789, lng: 55.1342 },
     ],
+    intercityDestinations: [
+      { name: 'Abu Dhabi Corniche Tower', area: 'Abu Dhabi · Out of City', lat: 24.4888, lng: 54.3549, distanceKm: 138 },
+      { name: 'Sharjah Waterfront Plaza', area: 'Sharjah · Out of City', lat: 25.3463, lng: 55.3895, distanceKm: 29 },
+      { name: 'Al Ain Oasis Gate', area: 'Al Ain · Out of City', lat: 24.2194, lng: 55.7644, distanceKm: 145 },
+    ],
+    ranks: [
+      { id: 'rank-dxb-mall', name: 'Dubai Mall VIP Rank', area: 'Downtown', lat: 25.1965, lng: 55.2788 },
+      { id: 'rank-dxb-difc', name: 'DIFC Gate Rank', area: 'DIFC', lat: 25.2121, lng: 55.2809 },
+      { id: 'rank-dxb-bb', name: 'Business Bay Priority Rank', area: 'Business Bay', lat: 25.1904, lng: 55.2608 },
+    ],
   },
   {
     id: 'new_york',
@@ -116,6 +178,16 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'SoHo Broadway & Prince', area: 'SoHo', lat: 40.7243, lng: -73.9977 },
       { name: 'Union Square East', area: 'Flatiron', lat: 40.7359, lng: -73.9911 },
       { name: 'Penn Station Plaza', area: 'Chelsea', lat: 40.7506, lng: -73.9935 },
+    ],
+    intercityDestinations: [
+      { name: 'Newark Airport Terminal C', area: 'Newark, NJ · Out of City', lat: 40.6895, lng: -74.1745, distanceKm: 26 },
+      { name: 'Stamford Station Plaza', area: 'Stamford, CT · Out of City', lat: 41.0469, lng: -73.5415, distanceKm: 58 },
+      { name: 'Philadelphia 30th St', area: 'Philadelphia, PA · Out of City', lat: 39.9566, lng: -75.1817, distanceKm: 152 },
+    ],
+    ranks: [
+      { id: 'rank-nyc-gct', name: 'Grand Central East Rank', area: 'Midtown East', lat: 40.7525, lng: -73.9765 },
+      { id: 'rank-nyc-penn', name: 'Penn Station 8th Ave Rank', area: 'Chelsea', lat: 40.7512, lng: -73.9942 },
+      { id: 'rank-nyc-soho', name: 'SoHo Mercer St Rank', area: 'SoHo', lat: 40.7248, lng: -73.9985 },
     ],
   },
 ];
@@ -299,8 +371,8 @@ export async function fetchRoadRoute(
 export function generateSurgeZonesNear(center: LatLng, cityId: string): SurgeZone[] {
   const city = getCityById(cityId);
   const offsets = [
-    { lat: 0.008, lng: -0.011, mult: 1.7, level: 'Peak' as const, radius: 950 },
-    { lat: -0.009, lng: 0.014, mult: 1.5, level: 'High' as const, radius: 850 },
+    { lat: 0.008, lng: -0.011, mult: 2.1, level: 'Peak' as const, radius: 950 },
+    { lat: -0.009, lng: 0.014, mult: 1.7, level: 'Peak' as const, radius: 850 },
     { lat: 0.013, lng: 0.016, mult: 1.4, level: 'High' as const, radius: 800 },
   ];
 
@@ -312,6 +384,43 @@ export function generateSurgeZonesNear(center: LatLng, cityId: string): SurgeZon
     radiusMeters: o.radius,
     demandLevel: o.level,
   }));
+}
+
+export function generateRanksNear(center: LatLng, cityId: string): TaxiRank[] {
+  const city = getCityById(cityId);
+  const distToCity = haversineKm(center, city.center);
+  if (distToCity < 25 && city.ranks.length > 0) {
+    return city.ranks.map((r, idx) => ({
+      id: r.id,
+      name: r.name,
+      area: r.area,
+      center: { lat: r.lat, lng: r.lng },
+      queueCount: 2 + idx * 2,
+      estWaitMin: 4 + idx * 3,
+      avgFareBoost: idx === 0 ? '+35% Airport/Express' : '+22% Station Priority',
+    }));
+  }
+
+  return [
+    {
+      id: `rank-local-1`,
+      name: 'Central Station Rank',
+      area: 'City Centre',
+      center: { lat: center.lat + 0.006, lng: center.lng + 0.007 },
+      queueCount: 3,
+      estWaitMin: 5,
+      avgFareBoost: '+24% Station Priority',
+    },
+    {
+      id: `rank-local-2`,
+      name: 'North Terminal Taxi Rank',
+      area: 'Transit Hub',
+      center: { lat: center.lat - 0.007, lng: center.lng - 0.008 },
+      queueCount: 5,
+      estWaitMin: 7,
+      avgFareBoost: '+32% Express Hub',
+    },
+  ];
 }
 
 const RIDER_NAMES = [
@@ -361,11 +470,14 @@ export async function generateLiveRideRequest(params: {
   minRiderRating: number;
   destinationTarget: LatLng | null;
   surgeZones: SurgeZone[];
+  preferredRankArea?: string | null;
 }): Promise<RideRequest> {
   const city = getCityById(params.cityId);
   const categories =
     params.enabledCategories.length > 0 ? params.enabledCategories : (['Bolt'] as RideCategory[]);
   const category = categories[Math.floor(Math.random() * categories.length)];
+  const isOutOfCity = category === 'Bolt City';
+  const isFlex = category === 'Bolt Flex';
 
   const distToCity = haversineKm(params.driverLocation, city.center);
   const useCityLandmarks = distToCity < 25 && city.landmarks.length >= 2;
@@ -376,6 +488,7 @@ export async function generateLiveRideRequest(params: {
   let dropoffCoords: LatLng;
   let dropoffAddress: string;
   let dropoffArea: string;
+  let outOfCityKmOverride: number | null = null;
 
   if (useCityLandmarks) {
     const sorted = [...city.landmarks].sort(
@@ -387,27 +500,47 @@ export async function generateLiveRideRequest(params: {
     const pickupPool = withinPickup.length > 0 ? withinPickup : sorted.slice(0, 3);
     const p = pickupPool[Math.floor(Math.random() * pickupPool.length)];
     pickupCoords = { lat: p.lat, lng: p.lng };
-    pickupAddress = p.name;
-    pickupArea = p.area;
+    pickupAddress = params.preferredRankArea ? `${params.preferredRankArea} Pickup Bay` : p.name;
+    pickupArea = params.preferredRankArea || p.area;
 
-    const dropPool = city.landmarks.filter((l) => l.name !== p.name);
-    const d = dropPool[Math.floor(Math.random() * dropPool.length)];
-    dropoffCoords = params.destinationTarget || { lat: d.lat, lng: d.lng };
-    dropoffAddress = params.destinationTarget ? 'Destination Corridor' : d.name;
-    dropoffArea = params.destinationTarget ? 'Target Area' : d.area;
+    if (isOutOfCity && city.intercityDestinations.length > 0) {
+      const inter =
+        city.intercityDestinations[
+          Math.floor(Math.random() * city.intercityDestinations.length)
+        ];
+      dropoffCoords = { lat: inter.lat, lng: inter.lng };
+      dropoffAddress = inter.name;
+      dropoffArea = inter.area;
+      outOfCityKmOverride = inter.distanceKm;
+    } else {
+      const dropPool = city.landmarks.filter((l) => l.name !== p.name);
+      const d = dropPool[Math.floor(Math.random() * dropPool.length)];
+      dropoffCoords = params.destinationTarget || { lat: d.lat, lng: d.lng };
+      dropoffAddress = params.destinationTarget ? 'Destination Corridor' : d.name;
+      dropoffArea = params.destinationTarget ? 'Target Area' : d.area;
+    }
   } else {
     const maxP = Math.min(params.maxPickupKm, 3.2);
     pickupCoords = randomOffsetCoord(params.driverLocation, 0.5, Math.max(1.2, maxP));
     const st1 = LOCAL_STREETS[Math.floor(Math.random() * LOCAL_STREETS.length)];
     const num1 = Math.floor(10 + Math.random() * 140);
-    pickupAddress = `${num1} ${st1}`;
-    pickupArea = 'Nearby Pickup';
+    pickupAddress = params.preferredRankArea
+      ? `${params.preferredRankArea} Pickup Bay`
+      : `${num1} ${st1}`;
+    pickupArea = params.preferredRankArea || 'Nearby Pickup';
 
-    dropoffCoords = params.destinationTarget || randomOffsetCoord(pickupCoords, 2.5, 7.5);
-    const st2 = LOCAL_STREETS[Math.floor(Math.random() * LOCAL_STREETS.length)];
-    const num2 = Math.floor(12 + Math.random() * 180);
-    dropoffAddress = params.destinationTarget ? 'Your Destination Area' : `${num2} ${st2}`;
-    dropoffArea = 'Destination';
+    if (isOutOfCity) {
+      dropoffCoords = randomOffsetCoord(pickupCoords, 42, 95);
+      dropoffAddress = 'Intercity Regional Terminal';
+      dropoffArea = 'Out of City';
+      outOfCityKmOverride = Number(haversineKm(pickupCoords, dropoffCoords).toFixed(1));
+    } else {
+      dropoffCoords = params.destinationTarget || randomOffsetCoord(pickupCoords, 2.5, 7.5);
+      const st2 = LOCAL_STREETS[Math.floor(Math.random() * LOCAL_STREETS.length)];
+      const num2 = Math.floor(12 + Math.random() * 180);
+      dropoffAddress = params.destinationTarget ? 'Your Destination Area' : `${num2} ${st2}`;
+      dropoffArea = 'Destination';
+    }
   }
 
   const [toPickup, toDropoff] = await Promise.all([
@@ -417,17 +550,29 @@ export async function generateLiveRideRequest(params: {
 
   let surgeMultiplier = 1.0;
   for (const z of params.surgeZones) {
-    if (haversineKm(pickupCoords, z.center) * 1000 <= z.radiusMeters + 450) {
+    if (haversineKm(pickupCoords, z.center) * 1000 <= z.radiusMeters + 500) {
       surgeMultiplier = z.multiplier;
       break;
     }
   }
+  if (isOutOfCity && surgeMultiplier < 1.25) {
+    surgeMultiplier = 1.25;
+  }
+
+  const tripDistanceKm = outOfCityKmOverride || toDropoff.distanceKm;
+  const tripEtaMin = outOfCityKmOverride
+    ? Math.max(35, Math.round(outOfCityKmOverride * 1.12))
+    : toDropoff.durationMin;
 
   const categoryRate =
-    category === 'Comfort'
+    category === 'Bolt City'
+      ? 1.55
+      : category === 'Comfort'
       ? 1.28
       : category === 'XL'
       ? 1.42
+      : category === 'Bolt Flex'
+      ? 1.12
       : category === 'Bolt Green'
       ? 1.08
       : category === 'Pets'
@@ -436,11 +581,11 @@ export async function generateLiveRideRequest(params: {
       ? 0.95
       : 1.0;
 
-  const baseFare = 3.2;
-  const distanceFare = Number((toDropoff.distanceKm * 1.85 * categoryRate).toFixed(2));
-  const timeFare = Number((toDropoff.durationMin * 0.28 * categoryRate).toFixed(2));
+  const baseFare = isOutOfCity ? 12.0 : 3.2;
+  const distanceFare = Number((tripDistanceKm * 1.85 * categoryRate).toFixed(2));
+  const timeFare = Number((tripEtaMin * 0.28 * categoryRate).toFixed(2));
   const rawTotal = baseFare + distanceFare + timeFare;
-  const minFloor = Math.max(params.minFareFilter, 6.5);
+  const minFloor = Math.max(params.minFareFilter, isOutOfCity ? 78 : 6.5);
   const adjustedSubtotal = Math.max(rawTotal, minFloor);
   const surgeBonus =
     surgeMultiplier > 1 ? Number((adjustedSubtotal * (surgeMultiplier - 1)).toFixed(2)) : 0;
@@ -469,8 +614,8 @@ export async function generateLiveRideRequest(params: {
     dropoffArea,
     pickupDistanceKm: toPickup.distanceKm,
     pickupEtaMin: toPickup.durationMin,
-    tripDistanceKm: toDropoff.distanceKm,
-    tripEtaMin: toDropoff.durationMin,
+    tripDistanceKm,
+    tripEtaMin,
     estimatedFare,
     baseFare,
     distanceFare,
@@ -481,8 +626,15 @@ export async function generateLiveRideRequest(params: {
     toDropoffRoute: toDropoff.points,
     maneuversToPickup: toPickup.maneuvers,
     maneuversToDropoff: toDropoff.maneuvers,
-    allowBid: params.allowBid,
-    note: Math.random() > 0.55 ? 'Waiting near main glass entrance' : undefined,
+    allowBid: isFlex || params.allowBid,
+    isOutOfCity,
+    // ~50% of riders reply cleanly, ~50% leave the driver waiting so the 2-min no-response workflow triggers naturally
+    willRiderReply: Math.random() > 0.5,
+    note: isOutOfCity
+      ? 'Intercity long-distance booking with luggage'
+      : Math.random() > 0.55
+      ? 'Waiting near main glass entrance'
+      : undefined,
   };
 }
 
@@ -493,32 +645,47 @@ export function generateBidJobsNear(
 ): BidJobOffer[] {
   const city = getCityById(cityId);
   const categories =
-    enabledCategories.length > 0 ? enabledCategories : (['Bolt'] as RideCategory[]);
+    enabledCategories.length > 0 ? enabledCategories : (['Bolt Flex'] as RideCategory[]);
 
   const schedules = ['Now (ASAP)', 'In 20 min', 'Today 16:30', 'Today 18:15'];
   const jobs: BidJobOffer[] = [];
 
   for (let i = 0; i < 4; i++) {
+    const isCityJob = i === 1 && categories.includes('Bolt City') && city.intercityDestinations.length > 0;
     const pickupCoords =
       city.landmarks[i] && haversineKm(driverLocation, city.center) < 25
         ? { lat: city.landmarks[i].lat, lng: city.landmarks[i].lng }
         : randomOffsetCoord(driverLocation, 0.8, 3.5);
-    const dropCoords =
-      city.landmarks[(i + 2) % city.landmarks.length] &&
-      haversineKm(driverLocation, city.center) < 25
-        ? {
-            lat: city.landmarks[(i + 2) % city.landmarks.length].lat,
-            lng: city.landmarks[(i + 2) % city.landmarks.length].lng,
-          }
-        : randomOffsetCoord(pickupCoords, 4.0, 11.5);
+
+    const interDest = isCityJob
+      ? city.intercityDestinations[i % city.intercityDestinations.length]
+      : null;
+
+    const dropCoords = interDest
+      ? { lat: interDest.lat, lng: interDest.lng }
+      : city.landmarks[(i + 2) % city.landmarks.length] &&
+        haversineKm(driverLocation, city.center) < 25
+      ? {
+          lat: city.landmarks[(i + 2) % city.landmarks.length].lat,
+          lng: city.landmarks[(i + 2) % city.landmarks.length].lng,
+        }
+      : randomOffsetCoord(pickupCoords, 4.0, 11.5);
 
     const pickupDistanceKm = Number(haversineKm(driverLocation, pickupCoords).toFixed(1));
-    const tripDistanceKm = Number(
-      Math.max(3.2, haversineKm(pickupCoords, dropCoords) * 1.25).toFixed(1)
-    );
-    const tripEtaMin = Math.max(9, Math.round(tripDistanceKm * 2.9));
-    const suggestedFare = Number((4.0 + tripDistanceKm * 1.95 + tripEtaMin * 0.25).toFixed(2));
-    const cat = categories[i % categories.length];
+    const tripDistanceKm = interDest
+      ? interDest.distanceKm
+      : Number(Math.max(3.2, haversineKm(pickupCoords, dropCoords) * 1.25).toFixed(1));
+    const tripEtaMin = interDest
+      ? Math.max(40, Math.round(interDest.distanceKm * 1.15))
+      : Math.max(9, Math.round(tripDistanceKm * 2.9));
+    const suggestedFare = interDest
+      ? Number((15 + tripDistanceKm * 1.85).toFixed(2))
+      : Number((4.0 + tripDistanceKm * 1.95 + tripEtaMin * 0.25).toFixed(2));
+    const cat: RideCategory = isCityJob
+      ? 'Bolt City'
+      : categories.includes('Bolt Flex')
+      ? 'Bolt Flex'
+      : categories[i % categories.length];
 
     jobs.push({
       id: `bid-${Date.now()}-${i}`,
@@ -529,23 +696,24 @@ export function generateBidJobsNear(
         city.landmarks[i] && haversineKm(driverLocation, city.center) < 25
           ? city.landmarks[i].name
           : `${20 + i * 17} ${LOCAL_STREETS[i % LOCAL_STREETS.length]}`,
-      dropoffAddress:
-        city.landmarks[(i + 2) % city.landmarks.length] &&
-        haversineKm(driverLocation, city.center) < 25
-          ? city.landmarks[(i + 2) % city.landmarks.length].name
-          : `${44 + i * 19} ${LOCAL_STREETS[(i + 3) % LOCAL_STREETS.length]}`,
+      dropoffAddress: interDest
+        ? interDest.name
+        : city.landmarks[(i + 2) % city.landmarks.length] &&
+          haversineKm(driverLocation, city.center) < 25
+        ? city.landmarks[(i + 2) % city.landmarks.length].name
+        : `${44 + i * 19} ${LOCAL_STREETS[(i + 3) % LOCAL_STREETS.length]}`,
       pickupCoords,
       dropoffCoords: dropCoords,
       pickupDistanceKm,
       tripDistanceKm,
       tripEtaMin,
       suggestedFare,
-      minBid: Math.max(6, Math.round(suggestedFare * 0.85)),
-      maxBid: Math.round(suggestedFare * 1.55),
+      minBid: Math.max(6, Math.round(suggestedFare * 0.82)),
+      maxBid: Math.round(suggestedFare * 1.65),
       currency: city.currency,
       scheduledFor: schedules[i],
       paymentMethod: i === 2 ? 'Apple Pay' : 'Card',
-      surgeMultiplier: i === 0 ? 1.4 : 1.0,
+      surgeMultiplier: isCityJob ? 1.5 : i === 0 ? 1.6 : 1.0,
       bidStatus: 'open',
     });
   }
@@ -574,7 +742,7 @@ export const INITIAL_VEHICLES: Vehicle[] = [
     color: 'Pearl White',
     year: 2024,
     fuelType: 'Electric',
-    categories: ['Bolt', 'Comfort', 'Bolt Green', 'Pets', 'Delivery'],
+    categories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City', 'Pets', 'Delivery'],
     imageUrl: '/src/assets/images/vehicle_sedan_1794515087800.jpg',
     isActive: true,
   },
@@ -585,7 +753,7 @@ export const INITIAL_VEHICLES: Vehicle[] = [
     color: 'Silver Metallic',
     year: 2023,
     fuelType: 'Hybrid',
-    categories: ['Bolt', 'Bolt Green', 'XL', 'Delivery'],
+    categories: ['Bolt', 'Bolt Green', 'Bolt Flex', 'Bolt City', 'XL', 'Delivery'],
     imageUrl: '/src/assets/images/vehicle_sedan_1794515087800.jpg',
     isActive: false,
   },
