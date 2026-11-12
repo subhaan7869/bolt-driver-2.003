@@ -45,6 +45,7 @@ import {
   INITIAL_VEHICLES,
   WEEKLY_EARNINGS_SERIES,
   calculateBearing,
+  exactDistanceKm,
   fetchRoadRoute,
   generateBidJobsNear,
   generateLiveRideRequest,
@@ -53,7 +54,7 @@ import {
   getCityById,
   getFutureIsoDate,
   getTodayDayKey,
-  haversineKm,
+  interpolateLatLng,
 } from './data/worldMapData';
 import {
   OperationType,
@@ -133,7 +134,7 @@ const DEFAULT_SETTINGS: DriverSettings = {
   autoAccept: false,
   acceptCash: true,
   allowBidOffers: true,
-  dispatchWaitSec: 60,
+  dispatchWaitSec: 0,
   minFareFilter: 0,
   maxPickupKm: 6,
   minRiderRating: 0,
@@ -148,6 +149,9 @@ const DEFAULT_SETTINGS: DriverSettings = {
   },
 };
 
+const resolveDispatchWaitSeconds = (settingSec: 0 | 60 | 120 | 180 | 300): number =>
+  settingSec === 0 ? 60 + Math.floor(Math.random() * 241) : settingSec;
+
 const SETTINGS_STORAGE_PREFIX = 'bolt_driver_settings_v1_';
 const VEHICLE_STORAGE_PREFIX = 'bolt_driver_vehicle_v1_';
 const BOOT_PERMS_DONE_KEY = 'bolt_boot_permissions_done_v1';
@@ -161,9 +165,9 @@ const getUserScopeKey = (
 };
 
 const sanitizeSettingsForFirestore = (s: DriverSettings): DriverSettings => {
-  const validDispatch = ([60, 120, 180, 300] as const).includes(s.dispatchWaitSec)
+  const validDispatch = ([0, 60, 120, 180, 300] as const).includes(s.dispatchWaitSec)
     ? s.dispatchWaitSec
-    : 60;
+    : 0;
   const validRefresh = ([15, 30, 60] as const).includes(s.refreshIntervalSec)
     ? s.refreshIntervalSec
     : 30;
@@ -315,7 +319,9 @@ export default function App() {
   const [previewDropoffRoute, setPreviewDropoffRoute] = useState<LatLng[]>([]);
   const [activeManeuvers, setActiveManeuvers] = useState<ManeuverStep[]>([]);
   const [currentManeuverIndex, setCurrentManeuverIndex] = useState<number>(0);
-  const routeIndexRef = useRef<number>(0);
+  const [currentRouteIndex, setCurrentRouteIndex] = useState<number>(0);
+  const [navSpeedKmh, setNavSpeedKmh] = useState<number>(38);
+  const routeProgressRef = useRef<{ index: number; progress: number }>({ index: 0, progress: 0 });
   const gpsWatchIdRef = useRef<number | null>(null);
 
   // Bid Marketplace (Bolt Flex)
@@ -391,13 +397,14 @@ export default function App() {
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [awaitingRiderReply, setAwaitingRiderReply] = useState(false);
   const [riderNoResponseSec, setRiderNoResponseSec] = useState(0);
-  const [nextRequestWaitLeft, setNextRequestWaitLeft] = useState<number>(60);
-  const dispatchTriggeredRef = useRef<boolean>(false);
-
   // Driver Settings (Remembered per user)
   const [settings, setSettings] = useState<DriverSettings>(() =>
     loadUserSettings(getUserScopeKey(profile))
   );
+  const [nextRequestWaitLeft, setNextRequestWaitLeft] = useState<number>(() =>
+    resolveDispatchWaitSeconds(loadUserSettings(getUserScopeKey(profile)).dispatchWaitSec)
+  );
+  const dispatchTriggeredRef = useRef<boolean>(false);
   const activeUserScopeKey = useMemo(
     () => getUserScopeKey(profile, firebaseUser),
     [profile.uid, profile.id, profile.email, firebaseUser]
@@ -552,7 +559,7 @@ export default function App() {
                 },
               }));
               setSettings(restoredSettings);
-              setNextRequestWaitLeft(restoredSettings.dispatchWaitSec);
+              setNextRequestWaitLeft(resolveDispatchWaitSeconds(restoredSettings.dispatchWaitSec));
               saveUserSettings(nextScope, restoredSettings);
 
               if (restoredVehicleId) {
@@ -722,7 +729,7 @@ export default function App() {
   const startShift = useCallback(() => {
     requestScreenWakeLock().catch(() => {});
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(settings.dispatchWaitSec);
+    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     setProfile((p) => ({ ...p, isOnline: true }));
     playSuccessTone(settings.soundAlerts);
@@ -736,7 +743,7 @@ export default function App() {
 
   const handleResumeFromBreak = useCallback(() => {
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(settings.dispatchWaitSec);
+    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     playSuccessTone(settings.soundAlerts);
     addToast('Back Online', 'Accepting nearby rides & surges again', 'success');
@@ -964,7 +971,8 @@ export default function App() {
       setPreviewDropoffRoute([]);
       setActiveManeuvers(finalReq.maneuversToPickup);
       setCurrentManeuverIndex(0);
-      routeIndexRef.current = 0;
+      setCurrentRouteIndex(0);
+      routeProgressRef.current = { index: 0, progress: 0 };
       setChatMessages([]);
       setUnreadChatCount(0);
       setAwaitingRiderReply(false);
@@ -1000,11 +1008,13 @@ export default function App() {
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
+    setCurrentRouteIndex(0);
+    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setAcceptanceRate((r) => Math.max(70, r - 1));
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(settings.dispatchWaitSec);
+    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
   }, [settings.dispatchWaitSec]);
 
@@ -1034,28 +1044,66 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
   }, [status, handleAcceptRequest, handleDeclineRequest]);
 
-  // Smooth GPS movement along OSRM route + real navigation sound chimes
+  // Continuous turn-by-turn GPS navigation along road geometry
   useEffect(() => {
     if (status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS') return;
     if (activeRoute.length < 2) return;
 
+    const tickMs = 80;
     const interval = setInterval(() => {
-      const idx = routeIndexRef.current;
-      if (idx >= activeRoute.length - 1) return;
+      let { index, progress } = routeProgressRef.current;
+      if (index >= activeRoute.length - 1) return;
 
-      const curr = activeRoute[idx];
-      const next = activeRoute[idx + 1];
-      const bearing = calculateBearing(curr, next);
-      setDriverHeading(bearing);
-      setDriverPos(next);
-      routeIndexRef.current = idx + 1;
+      const currPt = activeRoute[index];
+      const nextPt = activeRoute[index + 1];
+      const segKm = exactDistanceKm(currPt, nextPt);
+      const targetKmh = segKm > 0.06 ? 48 : 34;
+      const travelKm = ((targetKmh / 3600) * (tickMs / 1000)) * 2.2;
 
-      const nextMan = activeManeuvers[currentManeuverIndex + 1];
-      if (nextMan && idx + 1 >= nextMan.pointIndex) {
-        setCurrentManeuverIndex((m) => m + 1);
+      if (segKm < 0.0005) {
+        index += 1;
+        progress = 0;
+      } else {
+        progress += travelKm / segKm;
+        while (progress >= 1 && index < activeRoute.length - 1) {
+          const remainingRatio = progress - 1;
+          const prevSegKm = exactDistanceKm(activeRoute[index], activeRoute[index + 1]);
+          index += 1;
+          if (index >= activeRoute.length - 1) {
+            progress = 0;
+            break;
+          }
+          const nextSegKm = exactDistanceKm(activeRoute[index], activeRoute[index + 1]);
+          progress = nextSegKm > 0.0005 ? (remainingRatio * prevSegKm) / nextSegKm : 0;
+        }
+      }
+
+      routeProgressRef.current = { index, progress };
+      setCurrentRouteIndex(index);
+      setNavSpeedKmh(Math.round(targetKmh + Math.sin(index * 0.7) * 3));
+
+      if (index >= activeRoute.length - 1) {
+        setDriverPos(activeRoute[activeRoute.length - 1]);
+      } else {
+        const a = activeRoute[index];
+        const b = activeRoute[index + 1];
+        setDriverHeading(calculateBearing(a, b));
+        setDriverPos(interpolateLatLng(a, b, progress));
+      }
+
+      let matchedManIdx = currentManeuverIndex;
+      for (let m = currentManeuverIndex + 1; m < activeManeuvers.length; m++) {
+        if (index >= activeManeuvers[m].pointIndex) {
+          matchedManIdx = m;
+        } else {
+          break;
+        }
+      }
+      if (matchedManIdx > currentManeuverIndex) {
+        setCurrentManeuverIndex(matchedManIdx);
         playNavigationTurnPing(settings.soundAlerts);
       }
-    }, 360);
+    }, tickMs);
 
     return () => clearInterval(interval);
   }, [
@@ -1070,6 +1118,8 @@ export default function App() {
     if (!activeRequest) return;
     setDriverPos(activeRequest.pickupCoords);
     setActiveRoute([]);
+    setCurrentRouteIndex(0);
+    routeProgressRef.current = { index: 0, progress: 0 };
     setStatus('ARRIVED_PICKUP');
     playArrivalChime(settings.soundAlerts);
     // Start 2-minute customer response watch if rider hasn't replied yet
@@ -1084,7 +1134,8 @@ export default function App() {
     setActiveRoute(activeRequest.toDropoffRoute);
     setActiveManeuvers(activeRequest.maneuversToDropoff);
     setCurrentManeuverIndex(0);
-    routeIndexRef.current = 0;
+    setCurrentRouteIndex(0);
+    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setStatus('IN_PROGRESS');
@@ -1096,6 +1147,8 @@ export default function App() {
     setDriverPos(activeRequest.dropoffCoords);
     setActiveRoute([]);
     setActiveManeuvers([]);
+    setCurrentRouteIndex(0);
+    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setStatus('TRIP_COMPLETED');
@@ -1157,7 +1210,7 @@ export default function App() {
 
     setActiveRequest(null);
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(settings.dispatchWaitSec);
+    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     sendNotification(
       'Trip Paid',
@@ -1172,11 +1225,13 @@ export default function App() {
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
+    setCurrentRouteIndex(0);
+    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setCompletionRate((r) => Math.max(85, r - 1));
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(settings.dispatchWaitSec);
+    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     addToast('Ride Cancelled', reason, 'info');
   };
@@ -1290,7 +1345,8 @@ export default function App() {
     setPreviewDropoffRoute([]);
     setActiveManeuvers(req.maneuversToPickup);
     setCurrentManeuverIndex(0);
-    routeIndexRef.current = 0;
+    setCurrentRouteIndex(0);
+    routeProgressRef.current = { index: 0, progress: 0 };
     setChatMessages([]);
     setUnreadChatCount(0);
     setAwaitingRiderReply(false);
@@ -1324,7 +1380,7 @@ export default function App() {
     setVehicles((prev) => [newVehicle, ...prev.map((v) => ({ ...v, isActive: false }))]);
     setDocuments(newDocs);
     setSettings(nextSettings);
-    setNextRequestWaitLeft(nextSettings.dispatchWaitSec);
+    setNextRequestWaitLeft(resolveDispatchWaitSeconds(nextSettings.dispatchWaitSec));
 
     const city = getCityById(newProfile.cityId);
     setCurrentCityId(city.id);
@@ -1586,10 +1642,12 @@ export default function App() {
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
+    setCurrentRouteIndex(0);
+    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(settings.dispatchWaitSec);
+    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     sendNotification(
       'Cancellation Fee Credited',
@@ -1613,13 +1671,25 @@ export default function App() {
     }
   };
 
-  // Remaining route ETA & Distance calculation
+  // Remaining route ETA & Distance calculation along remaining polyline segments
   const targetCoord =
     status === 'EN_ROUTE_PICKUP' ? activeRequest?.pickupCoords : activeRequest?.dropoffCoords;
-  const remainingDistKm = targetCoord
-    ? Math.max(0.1, Number((haversineKm(driverPos, targetCoord) * 1.18).toFixed(1)))
-    : 0;
-  const remainingEtaMin = Math.max(1, Math.round(remainingDistKm * 3.1));
+  const remainingDistKm = useMemo(() => {
+    if (activeRoute.length > 1 && (status === 'EN_ROUTE_PICKUP' || status === 'IN_PROGRESS')) {
+      let totalKm = exactDistanceKm(
+        driverPos,
+        activeRoute[Math.min(activeRoute.length - 1, currentRouteIndex + 1)]
+      );
+      for (let i = currentRouteIndex + 1; i < activeRoute.length - 1; i++) {
+        totalKm += exactDistanceKm(activeRoute[i], activeRoute[i + 1]);
+      }
+      return Math.max(0.1, Number(totalKm.toFixed(1)));
+    }
+    return targetCoord
+      ? Math.max(0.1, Number((exactDistanceKm(driverPos, targetCoord) * 1.18).toFixed(1)))
+      : 0;
+  }, [activeRoute, currentRouteIndex, driverPos, targetCoord, status]);
+  const remainingEtaMin = Math.max(1, Math.round((remainingDistKm / Math.max(20, navSpeedKmh)) * 60));
 
   const isTripActive =
     status === 'INCOMING_REQUEST' ||
@@ -1760,7 +1830,12 @@ export default function App() {
               activeRequest={activeRequest}
               activeRoute={activeRoute}
               previewDropoffRoute={previewDropoffRoute}
+              currentRouteIndex={currentRouteIndex}
               currentManeuver={activeManeuvers[currentManeuverIndex] || null}
+              nextManeuver={activeManeuvers[currentManeuverIndex + 1] || null}
+              navSpeedKmh={navSpeedKmh}
+              remainingEtaMin={remainingEtaMin}
+              remainingDistKm={remainingDistKm}
               surgeZones={surgeZones}
               ranks={ranks}
               activeRankId={activeRankId}
@@ -1971,6 +2046,7 @@ export default function App() {
                   lastRefreshLabel={lastBackgroundSync}
                   backgroundRefreshEnabled={settings.backgroundRefresh}
                   nextRequestWaitLeft={nextRequestWaitLeft}
+                  isRandomWait={settings.dispatchWaitSec === 0}
                   autoAccept={settings.autoAccept}
                   activeRank={activeRank}
                   rankQueuePos={rankQueuePos}
@@ -2201,7 +2277,7 @@ export default function App() {
             setSettings((s) => ({ ...s, ...next }));
             if (next.dispatchWaitSec !== undefined) {
               dispatchTriggeredRef.current = false;
-              setNextRequestWaitLeft(next.dispatchWaitSec);
+              setNextRequestWaitLeft(resolveDispatchWaitSeconds(next.dispatchWaitSec));
             }
           }}
           onClose={() => setShowPrefs(false)}

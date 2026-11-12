@@ -207,7 +207,7 @@ export function getFutureIsoDate(daysFromNow: number): string {
   return d.toISOString().split('T')[0];
 }
 
-export function haversineKm(a: LatLng, b: LatLng): number {
+export function exactDistanceKm(a: LatLng, b: LatLng): number {
   const R = 6371;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
   const dLng = ((b.lng - a.lng) * Math.PI) / 180;
@@ -224,7 +224,19 @@ export function haversineKm(a: LatLng, b: LatLng): number {
             sinLng
       )
     );
-  return Math.max(0.2, Number((R * c).toFixed(2)));
+  return R * c;
+}
+
+export function haversineKm(a: LatLng, b: LatLng): number {
+  return Math.max(0.2, Number(exactDistanceKm(a, b).toFixed(2)));
+}
+
+export function interpolateLatLng(a: LatLng, b: LatLng, t: number): LatLng {
+  const clamped = Math.max(0, Math.min(1, t));
+  return {
+    lat: a.lat + (b.lat - a.lat) * clamped,
+    lng: a.lng + (b.lng - a.lng) * clamped,
+  };
 }
 
 export function calculateBearing(from: LatLng, to: LatLng): number {
@@ -318,39 +330,65 @@ export async function fetchRoadRoute(
     }));
 
     const stepsRaw = route.legs?.[0]?.steps || [];
-    const maneuvers: ManeuverStep[] = stepsRaw.slice(0, 8).map(
+    let searchStart = 0;
+    const maneuvers: ManeuverStep[] = stepsRaw.map(
       (
         step: {
           name?: string;
           distance?: number;
-          maneuver?: { modifier?: string };
+          maneuver?: { modifier?: string; type?: string; location?: [number, number] };
         },
         idx: number
       ) => {
         const mod = step.maneuver?.modifier || '';
+        const mType = step.maneuver?.type || '';
         const dir: 'left' | 'right' | 'straight' = mod.includes('left')
           ? 'left'
           : mod.includes('right')
           ? 'right'
           : 'straight';
-        const streetName = step.name && step.name.trim() ? step.name : 'local street';
-        const distM = Math.max(40, Math.round(step.distance || 150));
-        const instruction =
+        const streetName = step.name && step.name.trim() ? step.name : 'the road ahead';
+        const distM = Math.max(30, Math.round(step.distance || 120));
+
+        let instruction =
           dir === 'left'
             ? `Turn left onto ${streetName}`
             : dir === 'right'
             ? `Turn right onto ${streetName}`
             : `Continue on ${streetName}`;
 
+        if (mType === 'depart') {
+          instruction = `Head out onto ${streetName}`;
+        } else if (mType === 'roundabout' || mType === 'rotary') {
+          instruction = `At the roundabout, exit onto ${streetName}`;
+        } else if (mType === 'arrive') {
+          instruction = `Arrive at ${streetName === 'the road ahead' ? 'destination' : streetName}`;
+        }
+
+        let matchedIndex = Math.min(
+          points.length - 1,
+          Math.floor((idx / Math.max(1, stepsRaw.length)) * points.length)
+        );
+        const loc = step.maneuver?.location;
+        if (loc && loc.length === 2) {
+          const target: LatLng = { lat: loc[1], lng: loc[0] };
+          let bestDist = Infinity;
+          for (let pIdx = searchStart; pIdx < points.length; pIdx++) {
+            const d = exactDistanceKm(points[pIdx], target);
+            if (d < bestDist) {
+              bestDist = d;
+              matchedIndex = pIdx;
+            }
+          }
+          searchStart = matchedIndex;
+        }
+
         return {
           instruction,
           streetName,
           distanceMeters: distM,
           direction: dir,
-          pointIndex: Math.min(
-            points.length - 1,
-            Math.floor((idx / Math.max(1, stepsRaw.length)) * points.length)
-          ),
+          pointIndex: matchedIndex,
         };
       }
     );

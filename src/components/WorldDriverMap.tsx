@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import {
   Compass,
   CornerUpLeft,
   CornerUpRight,
+  Gauge,
   Globe,
   LocateFixed,
   Minus,
@@ -13,7 +14,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { WORLD_CITIES, haversineKm } from '../data/worldMapData';
+import { WORLD_CITIES, exactDistanceKm } from '../data/worldMapData';
 import {
   DriverStatus,
   LatLng,
@@ -30,7 +31,12 @@ interface WorldDriverMapProps {
   activeRequest: RideRequest | null;
   activeRoute: LatLng[];
   previewDropoffRoute: LatLng[];
+  currentRouteIndex: number;
   currentManeuver: ManeuverStep | null;
+  nextManeuver: ManeuverStep | null;
+  navSpeedKmh: number;
+  remainingEtaMin: number;
+  remainingDistKm: number;
   surgeZones: SurgeZone[];
   ranks: TaxiRank[];
   activeRankId: string | null;
@@ -55,7 +61,12 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   activeRequest,
   activeRoute,
   previewDropoffRoute,
+  currentRouteIndex,
   currentManeuver,
+  nextManeuver,
+  navSpeedKmh,
+  remainingEtaMin,
+  remainingDistKm,
   surgeZones,
   ranks,
   activeRankId,
@@ -78,10 +89,30 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   const driverMarkerRef = useRef<L.Marker | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const surgeLayerRef = useRef<L.LayerGroup | null>(null);
+  const fittedRequestIdRef = useRef<string | null>(null);
+  const prevNavPhaseRef = useRef<DriverStatus>('OFFLINE');
+
   const [followDriver, setFollowDriver] = useState(true);
   const [showCityPicker, setShowCityPicker] = useState(false);
   const [tileSourceTier, setTileSourceTier] = useState<0 | 1 | 2>(0);
-  const proxyUnavailableRef = useRef(false);
+  const [serverCartoConfigured, setServerCartoConfigured] = useState<boolean>(false);
+
+  const rawViteKey = (import.meta.env.VITE_CARTO_API_KEY || '').trim();
+  const hasViteCartoKey = Boolean(rawViteKey && rawViteKey !== 'MY_CARTO_API_KEY');
+
+  // Check once if server has a real CARTO_API_KEY configured
+  useEffect(() => {
+    if (hasViteCartoKey) return;
+    fetch('/api/tiles?mode=info')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.cartoConfigured === true) {
+          setServerCartoConfigured(true);
+          setTileSourceTier(0);
+        }
+      })
+      .catch(() => {});
+  }, [hasViteCartoKey]);
 
   // Initialize Leaflet World Map once
   useEffect(() => {
@@ -111,7 +142,10 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     };
   }, []);
 
-  // Update Tile Layer for Light / Night Map Theme (Server Proxy -> Direct CARTO CDN -> OSM fallback)
+  const hasCartoKey = hasViteCartoKey || serverCartoConfigured;
+  const usingTrueDarkCarto = hasCartoKey && tileSourceTier === 0;
+
+  // Update Tile Layer: Zero-key ArcGIS World Street Map -> OpenStreetMap -> /api/tiles (or CARTO only if configured)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -121,27 +155,34 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       tileLayerRef.current = null;
     }
 
-    const effectiveTier: 0 | 1 | 2 =
-      tileSourceTier === 0 && proxyUnavailableRef.current ? 1 : tileSourceTier;
-
-    const rawViteKey = (import.meta.env.VITE_CARTO_API_KEY || '').trim();
-    const keyQuery =
-      rawViteKey && rawViteKey !== 'MY_CARTO_API_KEY'
-        ? `?key=${encodeURIComponent(rawViteKey)}`
-        : '';
-
     const style = darkMode ? 'dark_all' : 'voyager';
-    const cartoDirectPath = darkMode ? 'dark_all' : 'rastertiles/voyager';
+    let tileUrl = '';
+    const options: L.TileLayerOptions = { maxZoom: 19 };
 
-    let tileUrl = `/api/tiles/${style}/{z}/{x}/{y}{r}.png`;
-    let options: L.TileLayerOptions = { maxZoom: 19 };
-
-    if (effectiveTier === 1) {
-      tileUrl = `https://{s}.basemaps.cartocdn.com/${cartoDirectPath}/{z}/{x}/{y}{r}.png${keyQuery}`;
-      options = { maxZoom: 19, subdomains: 'abcd' };
-    } else if (effectiveTier === 2) {
-      tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-      options = { maxZoom: 19 };
+    if (hasCartoKey) {
+      if (tileSourceTier === 0) {
+        tileUrl = hasViteCartoKey
+          ? `https://{s}.basemaps.cartocdn.com/${
+              darkMode ? 'dark_all' : 'rastertiles/voyager'
+            }/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(rawViteKey)}`
+          : `/api/tiles/${style}/{z}/{x}/{y}{r}.png`;
+        if (hasViteCartoKey) options.subdomains = 'abcd';
+      } else if (tileSourceTier === 1) {
+        tileUrl =
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+      } else {
+        tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      }
+    } else {
+      // Keyless default: ArcGIS CloudFront CDN first (no API key required, works on Vercel/mobile), then OSM, then proxy
+      if (tileSourceTier === 0) {
+        tileUrl =
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+      } else if (tileSourceTier === 1) {
+        tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      } else {
+        tileUrl = `/api/tiles/${style}/{z}/{x}/{y}{r}.png`;
+      }
     }
 
     let loadedAnyTile = false;
@@ -154,22 +195,41 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     });
     layer.on('tileerror', () => {
       errorCount += 1;
-      if (!loadedAnyTile && errorCount >= 2 && effectiveTier < 2) {
-        if (effectiveTier === 0) {
-          proxyUnavailableRef.current = true;
-        }
-        setTileSourceTier((prev) => {
-          const base = prev === 0 && proxyUnavailableRef.current ? 1 : prev;
-          return base < 2 ? ((base + 1) as 0 | 1 | 2) : prev;
-        });
+      if (!loadedAnyTile && errorCount >= 2 && tileSourceTier < 2) {
+        setTileSourceTier((prev) => (prev < 2 ? ((prev + 1) as 0 | 1 | 2) : prev));
       }
     });
 
     layer.addTo(map);
     tileLayerRef.current = layer;
-  }, [darkMode, tileSourceTier]);
+  }, [darkMode, tileSourceTier, hasCartoKey, hasViteCartoKey, rawViteKey]);
 
-  // Update Driver Vehicle Puck Marker
+  const isNavigating = status === 'EN_ROUTE_PICKUP' || status === 'IN_PROGRESS';
+
+  // Snap into closer navigation zoom when entering turn-by-turn navigation
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (
+      (status === 'EN_ROUTE_PICKUP' || status === 'IN_PROGRESS') &&
+      prevNavPhaseRef.current !== status
+    ) {
+      setFollowDriver(true);
+      map.setView([driverPos.lat, driverPos.lng], 17, { animate: true });
+    } else if (status === 'ONLINE_IDLE' && prevNavPhaseRef.current !== 'ONLINE_IDLE') {
+      setFollowDriver(true);
+      map.setView([driverPos.lat, driverPos.lng], 15, { animate: true });
+    }
+
+    if (status !== 'INCOMING_REQUEST') {
+      fittedRequestIdRef.current = null;
+    }
+
+    prevNavPhaseRef.current = status;
+  }, [status, driverPos.lat, driverPos.lng]);
+
+  // Update Driver Navigation Puck & Camera Follow (with forward look-ahead during navigation)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -181,13 +241,21 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         ? `<div style="position:absolute;inset:-12px;border-radius:9999px;background:rgba(52,209,134,0.28);animation:radar-pulse 2.2s cubic-bezier(0.16,1,0.3,1) infinite;"></div>`
         : '';
 
+    const beamHtml = isNavigating
+      ? `<div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:28px;height:26px;background:linear-gradient(to top, rgba(52,209,134,0.45), rgba(52,209,134,0));clip-path:polygon(15% 0%, 85% 0%, 60% 100%, 40% 100%);pointer-events:none;"></div>`
+      : '';
+
+    const puckSize = isNavigating ? 42 : 36;
     const puckHtml = `
-      <div style="position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+      <div style="position:relative;width:${puckSize}px;height:${puckSize}px;display:flex;align-items:center;justify-content:center;">
         ${pulseHtml}
-        <div style="width:30px;height:30px;border-radius:9999px;background:#ffffff;border:2.5px solid #0f172a;box-shadow:0 4px 12px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transform:rotate(${driverHeading}deg);transition:transform 120ms linear;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="${
-            isBreak ? '#F59E0B' : isOnline ? '#34D186' : '#64748B'
-          }">
+        <div style="position:relative;width:${isNavigating ? 34 : 30}px;height:${
+      isNavigating ? 34 : 30
+    }px;border-radius:9999px;background:#0F172A;border:3px solid #FFFFFF;box-shadow:0 6px 16px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;transform:rotate(${driverHeading}deg);transition:transform 90ms linear;">
+          ${beamHtml}
+          <svg width="${isNavigating ? 18 : 16}" height="${
+      isNavigating ? 18 : 16
+    }" viewBox="0 0 24 24" fill="${isBreak ? '#F59E0B' : isOnline ? '#34D186' : '#94A3B8'}">
             <polygon points="12,2 20,20 12,15 4,20" />
           </svg>
         </div>
@@ -197,8 +265,8 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     const icon = L.divIcon({
       className: '',
       html: puckHtml,
-      iconSize: [36, 36],
-      iconAnchor: [18, 18],
+      iconSize: [puckSize, puckSize],
+      iconAnchor: [puckSize / 2, puckSize / 2],
     });
 
     if (!driverMarkerRef.current) {
@@ -212,9 +280,20 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     }
 
     if (followDriver) {
-      map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.35 });
+      if (isNavigating) {
+        // Project camera slightly ahead of vehicle heading & compensate for bottom trip card
+        const rad = (driverHeading * Math.PI) / 180;
+        const lookAheadDeg = 0.00075;
+        const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+        const sheetOffsetLat = isMobile ? -0.00055 : 0;
+        const targetLat = driverPos.lat + Math.cos(rad) * lookAheadDeg + sheetOffsetLat;
+        const targetLng = driverPos.lng + Math.sin(rad) * lookAheadDeg;
+        map.panTo([targetLat, targetLng], { animate: true, duration: 0.2 });
+      } else {
+        map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.3 });
+      }
     }
-  }, [driverPos.lat, driverPos.lng, driverHeading, status, followDriver]);
+  }, [driverPos.lat, driverPos.lng, driverHeading, status, followDriver, isNavigating]);
 
   // Render Surge Zones & Taxi Ranks when Offline, Online Idle, or On Break
   useEffect(() => {
@@ -253,7 +332,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         .addTo(group);
     });
 
-    // Taxi & Station Ranks
     ranks.forEach((rank) => {
       const joined = activeRankId === rank.id;
       const rankIcon = L.divIcon({
@@ -278,7 +356,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     });
   }, [surgeZones, ranks, activeRankId, status, onSelectSurgeZone, onSelectRank]);
 
-  // Render Route Polylines, Pickup, Dropoff, and Destination Filter Pins
+  // Render Route Polylines (traveled faded + remaining Bolt-green navigation path), Pins & Full-Trip Zoom Out
   useEffect(() => {
     const group = routeLayerRef.current;
     const map = mapRef.current;
@@ -305,7 +383,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
           color: darkMode ? '#94A3B8' : '#334155',
           weight: 4.5,
           dashArray: '8 8',
-          opacity: 0.85,
+          opacity: 0.88,
         }
       ).addTo(group);
     }
@@ -317,17 +395,48 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         status === 'IN_PROGRESS') &&
       activeRoute.length > 1
     ) {
-      const latlngs = activeRoute.map((p) => [p.lat, p.lng] as [number, number]);
-      L.polyline(latlngs, {
-        color: '#15803D',
-        weight: 8,
-        opacity: 0.3,
-      }).addTo(group);
-      L.polyline(latlngs, {
-        color: '#34D186',
-        weight: 5,
-        opacity: 0.96,
-      }).addTo(group);
+      if (isNavigating && currentRouteIndex > 0) {
+        const traveled = activeRoute.slice(0, Math.min(activeRoute.length, currentRouteIndex + 1));
+        if (traveled.length > 1) {
+          L.polyline(
+            traveled.map((p) => [p.lat, p.lng] as [number, number]),
+            {
+              color: '#64748B',
+              weight: 5,
+              opacity: 0.35,
+            }
+          ).addTo(group);
+        }
+        const ahead = [
+          driverPos,
+          ...activeRoute.slice(Math.min(activeRoute.length - 1, currentRouteIndex + 1)),
+        ];
+        if (ahead.length > 1) {
+          const aheadLatLngs = ahead.map((p) => [p.lat, p.lng] as [number, number]);
+          L.polyline(aheadLatLngs, {
+            color: '#0F172A',
+            weight: 9,
+            opacity: 0.42,
+          }).addTo(group);
+          L.polyline(aheadLatLngs, {
+            color: '#34D186',
+            weight: 5.5,
+            opacity: 0.98,
+          }).addTo(group);
+        }
+      } else {
+        const latlngs = activeRoute.map((p) => [p.lat, p.lng] as [number, number]);
+        L.polyline(latlngs, {
+          color: '#0F172A',
+          weight: 8,
+          opacity: 0.35,
+        }).addTo(group);
+        L.polyline(latlngs, {
+          color: '#34D186',
+          weight: 5,
+          opacity: 0.96,
+        }).addTo(group);
+      }
     }
 
     if (
@@ -377,13 +486,25 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       }).addTo(group);
     }
 
-    if (status === 'INCOMING_REQUEST' && activeRequest) {
-      const bounds = L.latLngBounds([
-        [driverPos.lat, driverPos.lng],
-        [activeRequest.pickupCoords.lat, activeRequest.pickupCoords.lng],
-        [activeRequest.dropoffCoords.lat, activeRequest.dropoffCoords.lng],
-      ]);
-      map.fitBounds(bounds, { padding: [70, 70], maxZoom: 15, animate: true });
+    // Zoom out smoothly to show the entire trip (Driver -> Pickup -> Dropoff) clear of the bottom request card
+    if (status === 'INCOMING_REQUEST' && activeRequest && fittedRequestIdRef.current !== activeRequest.id) {
+      fittedRequestIdRef.current = activeRequest.id;
+      const allPoints: LatLng[] = [
+        driverPos,
+        activeRequest.pickupCoords,
+        activeRequest.dropoffCoords,
+        ...activeRoute,
+        ...previewDropoffRoute,
+      ];
+      const bounds = L.latLngBounds(allPoints.map((p) => [p.lat, p.lng] as [number, number]));
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+      const bottomPad = isMobile ? Math.min(380, Math.round(window.innerHeight * 0.46)) : 120;
+      map.fitBounds(bounds, {
+        paddingTopLeft: [36, 76],
+        paddingBottomRight: [48, bottomPad],
+        maxZoom: 14,
+        animate: true,
+      });
       setFollowDriver(false);
     }
   }, [
@@ -391,61 +512,89 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     activeRequest,
     activeRoute,
     previewDropoffRoute,
+    currentRouteIndex,
     destinationTarget,
     darkMode,
+    isNavigating,
     driverPos.lat,
     driverPos.lng,
   ]);
 
   const handleRecenter = () => {
     setFollowDriver(true);
-    mapRef.current?.setView([driverPos.lat, driverPos.lng], 15, { animate: true });
+    mapRef.current?.setView([driverPos.lat, driverPos.lng], isNavigating ? 17 : 15, {
+      animate: true,
+    });
   };
 
-  const showTurnBanner = status === 'EN_ROUTE_PICKUP' || status === 'IN_PROGRESS';
-  const remainingTarget =
-    status === 'EN_ROUTE_PICKUP' ? activeRequest?.pickupCoords : activeRequest?.dropoffCoords;
-  const distToManeuverMeters =
-    currentManeuver?.distanceMeters ||
-    (remainingTarget ? Math.max(50, Math.round(haversineKm(driverPos, remainingTarget) * 1000)) : 180);
+  // Compute real live distance countdown along the remaining road geometry to the next turn
+  const distToManeuverMeters = useMemo(() => {
+    const targetIdx = nextManeuver?.pointIndex ?? activeRoute.length - 1;
+    if (activeRoute.length > 1 && targetIdx > currentRouteIndex) {
+      let km = exactDistanceKm(
+        driverPos,
+        activeRoute[Math.min(activeRoute.length - 1, currentRouteIndex + 1)]
+      );
+      const end = Math.min(activeRoute.length - 1, targetIdx);
+      for (let i = currentRouteIndex + 1; i < end; i++) {
+        km += exactDistanceKm(activeRoute[i], activeRoute[i + 1]);
+      }
+      const m = Math.round(km * 1000);
+      return m > 100 ? Math.round(m / 10) * 10 : Math.max(10, Math.round(m / 5) * 5);
+    }
+    const target =
+      status === 'EN_ROUTE_PICKUP' ? activeRequest?.pickupCoords : activeRequest?.dropoffCoords;
+    if (target) {
+      return Math.max(10, Math.round(exactDistanceKm(driverPos, target) * 1000));
+    }
+    return currentManeuver?.distanceMeters || 120;
+  }, [activeRoute, currentRouteIndex, driverPos, nextManeuver, currentManeuver, status, activeRequest]);
+
+  const etaClock = useMemo(() => {
+    const d = new Date(Date.now() + remainingEtaMin * 60 * 1000);
+    return `${d.getHours().toString().padStart(2, '0')}:${d
+      .getMinutes()
+      .toString()
+      .padStart(2, '0')}`;
+  }, [remainingEtaMin]);
 
   const currentCityName =
     WORLD_CITIES.find((c) => c.id === currentCityId)?.name || 'London';
+
+  const renderDirectionIcon = (dir?: 'left' | 'right' | 'straight', sizeClass = 'w-5 h-5 sm:w-6 sm:h-6') => {
+    if (dir === 'left') return <CornerUpLeft className={`${sizeClass} stroke-[2.5]`} />;
+    if (dir === 'right') return <CornerUpRight className={`${sizeClass} stroke-[2.5]`} />;
+    return <Navigation className={`${sizeClass} stroke-[2.5]`} />;
+  };
 
   return (
     <div
       className={`relative w-full h-full overflow-hidden ${
         darkMode ? 'bg-[#14181F]' : 'bg-[#EEF1F4]'
-      }`}
+      } ${darkMode && !usingTrueDarkCarto ? 'bolt-dark-tiles' : ''}`}
     >
       {/* Leaflet World Map Canvas */}
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* Top Turn-by-Turn Navigation Banner (Sound Effects Mute/Unmute only, no voice) */}
-      {showTurnBanner && (
-        <div className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-2.5 right-[52px] sm:left-4 sm:right-auto sm:w-[400px] z-[400] pointer-events-auto">
-          <div className="bg-[#111820] text-white rounded-2xl p-2.5 sm:p-3.5 shadow-xl border border-white/10 flex items-center gap-2 sm:gap-3">
-            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#34D186] text-slate-950 flex items-center justify-center shrink-0">
-              {currentManeuver?.direction === 'left' ? (
-                <CornerUpLeft className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
-              ) : currentManeuver?.direction === 'right' ? (
-                <CornerUpRight className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
-              ) : (
-                <Navigation className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
-              )}
+      {/* Top Real-Time Turn-by-Turn Navigation HUD */}
+      {isNavigating && (
+        <div className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-2.5 right-[52px] sm:left-4 sm:right-auto sm:w-[400px] z-[400] pointer-events-auto space-y-1.5">
+          <div className="bg-[#0F172A] text-white rounded-2xl p-2.5 sm:p-3.5 shadow-xl border border-white/10 flex items-center gap-2.5 sm:gap-3">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-[#34D186] text-slate-950 flex items-center justify-center shrink-0 shadow-md">
+              {renderDirectionIcon(currentManeuver?.direction)}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-1.5 sm:gap-2">
-                <span className="text-sm sm:text-lg font-extrabold font-mono-num tracking-tight">
+                <span className="text-base sm:text-xl font-extrabold font-mono-num tracking-tight">
                   {distToManeuverMeters >= 1000
                     ? `${(distToManeuverMeters / 1000).toFixed(1)} km`
                     : `${distToManeuverMeters} m`}
                 </span>
-                <span className="text-[11px] sm:text-xs text-emerald-400 font-semibold whitespace-nowrap">
+                <span className="text-[11px] sm:text-xs text-[#34D186] font-bold whitespace-nowrap">
                   {status === 'EN_ROUTE_PICKUP' ? 'To pickup' : 'To destination'}
                 </span>
               </div>
-              <p className="text-[11px] sm:text-sm text-slate-200 font-medium truncate">
+              <p className="text-xs sm:text-sm text-slate-100 font-semibold truncate">
                 {currentManeuver?.instruction ||
                   (status === 'EN_ROUTE_PICKUP'
                     ? `Head toward ${activeRequest?.pickupAddress}`
@@ -459,8 +608,38 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
               className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 flex items-center justify-center text-white shrink-0 transition-all"
               title={soundEnabled ? 'Navigation sounds on' : 'Navigation sounds muted'}
             >
-              {soundEnabled ? <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" /> : <VolumeX className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400" />}
+              {soundEnabled ? (
+                <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />
+              ) : (
+                <VolumeX className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400" />
+              )}
             </button>
+          </div>
+
+          {/* Upcoming Next Turn + Live Speed / ETA Telemetry Strip */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {nextManeuver && (
+              <div className="inline-flex items-center gap-1.5 bg-slate-900/92 text-slate-100 rounded-xl px-2.5 py-1.5 text-[11px] font-bold shadow-lg border border-white/10 max-w-full truncate">
+                <span className="text-slate-400 font-semibold">Then</span>
+                <span className="text-[#34D186] shrink-0">
+                  {renderDirectionIcon(nextManeuver.direction, 'w-3.5 h-3.5')}
+                </span>
+                <span className="truncate">{nextManeuver.streetName}</span>
+              </div>
+            )}
+
+            <div className="inline-flex items-center gap-2 bg-white/95 dark:bg-slate-900/95 text-slate-900 dark:text-white rounded-xl px-2.5 py-1.5 text-[11px] font-extrabold shadow-lg border border-slate-200/80 dark:border-slate-700 font-mono-num">
+              <span className="inline-flex items-center gap-1 text-[#25B670]">
+                <Gauge className="w-3.5 h-3.5" />
+                {navSpeedKmh} km/h
+              </span>
+              <span className="text-slate-300 dark:text-slate-600">·</span>
+              <span>{remainingEtaMin} min</span>
+              <span className="text-slate-300 dark:text-slate-600">·</span>
+              <span>{remainingDistKm.toFixed(1)} km</span>
+              <span className="text-slate-300 dark:text-slate-600">·</span>
+              <span className="text-slate-500 dark:text-slate-400 font-semibold">ETA {etaClock}</span>
+            </div>
           </div>
         </div>
       )}
@@ -468,7 +647,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       {/* Right Floating Map Controls — compact on phones, non-overlapping vertical rail */}
       <div
         className={`absolute right-2.5 sm:right-3 z-[420] flex flex-col gap-1.5 sm:gap-2 ${
-          showTurnBanner
+          isNavigating
             ? 'top-[max(0.75rem,env(safe-area-inset-top))]'
             : 'top-[max(3.75rem,calc(env(safe-area-inset-top)+3rem))] lg:top-3.5'
         }`}

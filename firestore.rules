@@ -41,7 +41,7 @@ service cloud.firestore {
         && (!('allowBidOffers' in s) || s.allowBidOffers is bool)
         && (!('pushNotifications' in s) || s.pushNotifications is bool)
         && (!('backgroundRefresh' in s) || s.backgroundRefresh is bool)
-        && (!('dispatchWaitSec' in s) || s.dispatchWaitSec in [60, 120, 180, 300])
+        && (!('dispatchWaitSec' in s) || s.dispatchWaitSec in [0, 60, 120, 180, 300])
         && (!('minFareFilter' in s) || (s.minFareFilter is number && s.minFareFilter >= 0 && s.minFareFilter <= 1000))
         && (!('maxPickupKm' in s) || (s.maxPickupKm is number && s.maxPickupKm >= 1 && s.maxPickupKm <= 100))
         && (!('minRiderRating' in s) || (s.minRiderRating is number && s.minRiderRating >= 0 && s.minRiderRating <= 5))

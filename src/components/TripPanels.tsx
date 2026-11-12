@@ -33,6 +33,7 @@ interface TripPanelsProps {
   lastRefreshLabel: string;
   backgroundRefreshEnabled: boolean;
   nextRequestWaitLeft: number;
+  isRandomWait?: boolean;
   autoAccept: boolean;
   activeRank: TaxiRank | null;
   rankQueuePos: number | null;
@@ -75,6 +76,7 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
   lastRefreshLabel,
   backgroundRefreshEnabled,
   nextRequestWaitLeft,
+  isRandomWait,
   autoAccept,
   activeRank,
   rankQueuePos,
@@ -279,8 +281,9 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
               Next request in{' '}
               <span className="font-mono-num font-extrabold text-slate-800 dark:text-slate-200">
                 {formatTimer(nextRequestWaitLeft)}
-              </span>{' '}
-              · {backgroundRefreshEnabled ? `Synced ${lastRefreshLabel}` : 'Scanning surges'}
+              </span>
+              {isRandomWait ? ' (Random)' : ''} ·{' '}
+              {backgroundRefreshEnabled ? `Synced ${lastRefreshLabel}` : 'Scanning surges'}
             </p>
           </div>
 

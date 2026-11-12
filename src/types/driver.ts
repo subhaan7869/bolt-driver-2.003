@@ -237,7 +237,7 @@ export interface DriverSettings {
   autoAccept: boolean;
   acceptCash: boolean;
   allowBidOffers: boolean;
-  dispatchWaitSec: 60 | 120 | 180 | 300;
+  dispatchWaitSec: 0 | 60 | 120 | 180 | 300;
   minFareFilter: number;
   maxPickupKm: number;
   minRiderRating: number;

@@ -150,7 +150,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
             </div>
           </div>
 
-          {/* Wait for Next Job Timer (1 to 5 minutes) */}
+          {/* Wait for Next Job Timer (Random or 1 to 5 minutes) */}
           <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between">
               <div>
@@ -162,11 +162,13 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                 </div>
               </div>
               <span className="text-xs font-extrabold text-[#25B670] font-mono-num">
-                {Math.round(settings.dispatchWaitSec / 60)} min
+                {settings.dispatchWaitSec === 0
+                  ? 'Random (1–5m)'
+                  : `${Math.round(settings.dispatchWaitSec / 60)} min`}
               </span>
             </div>
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-              {([60, 120, 180, 300] as const).map((sec) => (
+            <div className="grid grid-cols-5 gap-1.5">
+              {([0, 60, 120, 180, 300] as const).map((sec) => (
                 <button
                   key={sec}
                   type="button"
@@ -177,7 +179,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                   }`}
                 >
-                  {sec / 60}m
+                  {sec === 0 ? 'Random' : `${sec / 60}m`}
                 </button>
               ))}
             </div>
@@ -483,39 +485,44 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
   const ss = (remainingSec % 60).toString().padStart(2, '0');
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-      <div className="w-full max-w-[380px] sm:max-w-md bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col h-[72dvh] sm:h-[560px]">
-        <div className="px-3.5 py-2.5 sm:p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+    <div className="fixed inset-0 z-[750] w-screen h-dvh bg-white dark:bg-slate-950 flex flex-col">
+      <div className="px-4 pt-[max(0.85rem,env(safe-area-inset-top))] pb-3 border-b border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-full bg-[#34D186]/15 text-[#25B670] font-extrabold text-sm flex items-center justify-center shrink-0">
+            {riderName.charAt(0).toUpperCase()}
+          </div>
           <div className="min-w-0">
-            <h3 className="text-sm sm:text-base font-extrabold text-slate-950 dark:text-white truncate leading-tight">
-              Chat with {riderName}
+            <h3 className="text-base font-extrabold text-slate-950 dark:text-white truncate leading-tight">
+              {riderName}
             </h3>
-            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
-              Masked messaging · 2-min response protection
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+              Masked Bolt customer chat · 2-min response protection
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close chat"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0"
-          >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close chat"
+          className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shrink-0"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
-        {awaitingRiderReply && (
-          <div
-            className={`px-4 py-2.5 border-b text-xs ${
-              noResponseReached
-                ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800'
-                : 'bg-slate-50 dark:bg-slate-800/70 border-slate-100 dark:border-slate-800'
-            }`}
-          >
+      {awaitingRiderReply && (
+        <div
+          className={`px-4 py-3 border-b text-xs shrink-0 ${
+            noResponseReached
+              ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800'
+              : 'bg-slate-50 dark:bg-slate-900 border-slate-200/80 dark:border-slate-800'
+          }`}
+        >
+          <div className="max-w-2xl mx-auto">
             {!noResponseReached ? (
               <div className="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200">
                 <span className="inline-flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-amber-500" />
+                  <Clock className="w-4 h-4 text-amber-500" />
                   Waiting for {riderName} to reply...
                 </span>
                 <span className="font-mono-num font-extrabold text-amber-600 dark:text-amber-400">
@@ -528,18 +535,18 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
                   No response within 2 minutes — choose to wait or cancel for {currency}
                   {noResponseFeeAmount.toFixed(2)}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={onWaitLonger}
-                    className="h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-white"
+                    className="h-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-white"
                   >
                     Wait Longer
                   </button>
                   <button
                     type="button"
                     onClick={onCancelCollectFee}
-                    className="h-9 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold"
+                    className="h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold"
                   >
                     Cancel (+{currency}
                     {noResponseFeeAmount.toFixed(2)})
@@ -548,12 +555,14 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
               </div>
             )}
           </div>
-        )}
+        </div>
+      )}
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="max-w-2xl mx-auto space-y-3">
           {messages.length === 0 ? (
-            <div className="text-center py-10 text-xs text-slate-400">
-              No messages yet. Tap a quick reply below or type a message.
+            <div className="text-center py-16 text-sm text-slate-400">
+              No messages yet. Tap a quick reply below or message {riderName}.
             </div>
           ) : (
             messages.map((msg) => (
@@ -564,30 +573,32 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
                 }`}
               >
                 <div
-                  className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm ${
+                  className={`max-w-[82%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
                     msg.sender === 'driver'
-                      ? 'bg-[#34D186] text-slate-950 font-medium rounded-br-sm'
+                      ? 'bg-[#34D186] text-slate-950 font-semibold rounded-br-sm'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-bl-sm'
                   }`}
                 >
                   {msg.text}
                 </div>
-                <span className="text-[10px] text-slate-400 mt-1 px-1 tabular-nums">
+                <span className="text-[11px] text-slate-400 mt-1 px-1 tabular-nums">
                   {msg.timestamp}
                 </span>
               </div>
             ))
           )}
         </div>
+      </div>
 
-        <div className="px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-slate-100 dark:border-slate-800 space-y-2.5">
-          <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+      <div className="px-4 pt-3 pb-[max(0.85rem,env(safe-area-inset-bottom))] border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+        <div className="max-w-2xl mx-auto space-y-2.5">
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
             {quickReplies.map((qr) => (
               <button
                 key={qr}
                 type="button"
                 onClick={() => onSendMessage(qr)}
-                className="px-3 min-h-[36px] py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap shrink-0"
+                className="px-3.5 min-h-[38px] py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap shrink-0"
               >
                 {qr}
               </button>
@@ -598,15 +609,15 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
               type="text"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Write a message..."
-              className="flex-1 min-w-0 h-11 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
+              placeholder={`Message ${riderName}...`}
+              className="flex-1 min-w-0 h-12 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
             />
             <button
               type="submit"
               aria-label="Send message"
-              className="w-11 h-11 rounded-xl bg-[#34D186] text-slate-950 flex items-center justify-center shrink-0"
+              className="w-12 h-12 rounded-2xl bg-[#34D186] hover:bg-[#29BE77] text-slate-950 flex items-center justify-center shrink-0 transition-colors"
             >
-              <Send className="w-4 h-4" />
+              <Send className="w-5 h-5" />
             </button>
           </form>
         </div>
