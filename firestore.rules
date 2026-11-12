@@ -26,6 +26,46 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId && isValidId(userId);
     }
 
+    function isValidDriverSettings(s) {
+      return s is map
+        && s.keys().hasOnly([
+          'darkMode', 'soundAlerts', 'autoAccept', 'acceptCash', 'allowBidOffers',
+          'dispatchWaitSec', 'minFareFilter', 'maxPickupKm', 'minRiderRating',
+          'pushNotifications', 'backgroundRefresh', 'refreshIntervalSec',
+          'enabledCategories', 'destinationFilter'
+        ])
+        && (!('darkMode' in s) || s.darkMode is bool)
+        && (!('soundAlerts' in s) || s.soundAlerts is bool)
+        && (!('autoAccept' in s) || s.autoAccept is bool)
+        && (!('acceptCash' in s) || s.acceptCash is bool)
+        && (!('allowBidOffers' in s) || s.allowBidOffers is bool)
+        && (!('pushNotifications' in s) || s.pushNotifications is bool)
+        && (!('backgroundRefresh' in s) || s.backgroundRefresh is bool)
+        && (!('dispatchWaitSec' in s) || s.dispatchWaitSec in [60, 120, 180, 300])
+        && (!('minFareFilter' in s) || (s.minFareFilter is number && s.minFareFilter >= 0 && s.minFareFilter <= 1000))
+        && (!('maxPickupKm' in s) || (s.maxPickupKm is number && s.maxPickupKm >= 1 && s.maxPickupKm <= 100))
+        && (!('minRiderRating' in s) || (s.minRiderRating is number && s.minRiderRating >= 0 && s.minRiderRating <= 5))
+        && (!('refreshIntervalSec' in s) || s.refreshIntervalSec in [15, 30, 60])
+        && (!('enabledCategories' in s) || (
+          s.enabledCategories is list
+          && s.enabledCategories.size() >= 1
+          && s.enabledCategories.size() <= 10
+          && s.enabledCategories[0] is string
+        ))
+        && (!('destinationFilter' in s) || (
+          s.destinationFilter is map
+          && s.destinationFilter.keys().hasOnly(['enabled', 'targetCoords', 'targetLabel'])
+          && (!('enabled' in s.destinationFilter) || s.destinationFilter.enabled is bool)
+          && (!('targetLabel' in s.destinationFilter) || s.destinationFilter.targetLabel == null || (s.destinationFilter.targetLabel is string && s.destinationFilter.targetLabel.size() <= 120))
+          && (!('targetCoords' in s.destinationFilter) || s.destinationFilter.targetCoords == null || (
+            s.destinationFilter.targetCoords is map
+            && s.destinationFilter.targetCoords.keys().hasOnly(['lat', 'lng'])
+            && s.destinationFilter.targetCoords.lat is number
+            && s.destinationFilter.targetCoords.lng is number
+          ))
+        ));
+    }
+
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['uid', 'fullName', 'email'])
         && data.keys().hasOnly([
@@ -35,7 +75,7 @@ service cloud.firestore {
           'todayTripsCount', 'bankBalance', 'insuranceCoverage',
           'insuranceExpiry', 'documentExpiries', 'fcmToken',
           'insuredVehiclePlate', 'insuredVehicleModel', 'additionalDrivers',
-          'documentsUploaded', 'faceVerified'
+          'documentsUploaded', 'faceVerified', 'activeVehicleId', 'settings'
         ])
         && data.uid is string && data.uid == userId && data.uid.size() <= 128
         && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
@@ -52,7 +92,9 @@ service cloud.firestore {
         && (!('bankBalance' in data) || (data.bankBalance is number && data.bankBalance >= 0))
         && (!('insuranceCoverage' in data) || data.insuranceCoverage in ['taxi', 'food', 'all'])
         && (!('insuranceExpiry' in data) || (data.insuranceExpiry is string && data.insuranceExpiry.size() <= 32))
-        && (!('fcmToken' in data) || (data.fcmToken is string && data.fcmToken.size() <= 512));
+        && (!('fcmToken' in data) || (data.fcmToken is string && data.fcmToken.size() <= 512))
+        && (!('activeVehicleId' in data) || (data.activeVehicleId is string && data.activeVehicleId.size() <= 64))
+        && (!('settings' in data) || isValidDriverSettings(data.settings));
     }
 
     match /users/{userId} {
@@ -75,7 +117,7 @@ service cloud.firestore {
           'todayTripsCount', 'bankBalance', 'insuranceCoverage',
           'insuranceExpiry', 'documentExpiries', 'fcmToken',
           'insuredVehiclePlate', 'insuredVehicleModel', 'additionalDrivers',
-          'documentsUploaded', 'faceVerified'
+          'documentsUploaded', 'faceVerified', 'activeVehicleId', 'settings'
         ]);
 
       allow delete: if isOwner(userId);

@@ -26,6 +26,7 @@ import { BootScreen } from './components/BootScreen';
 import { EarningsView } from './components/EarningsView';
 import { IncomingRequestModal } from './components/IncomingRequestModal';
 import { InsuranceRenewalChat, InsuranceView } from './components/InsuranceView';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import {
   CancelRideModal,
   DestinationModal,
@@ -33,6 +34,8 @@ import {
   RiderChatModal,
   SafetyModal,
 } from './components/Overlays';
+import { PermissionsPromptModal } from './components/PermissionsPromptModal';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { TripPanels } from './components/TripPanels';
 import { WorldDriverMap } from './components/WorldDriverMap';
 import {
@@ -84,6 +87,11 @@ import {
   getNotificationPermission,
   requestPushPermission,
 } from './utils/notifications';
+import {
+  AppPermissionsSnapshot,
+  queryAllPermissions,
+  requestAllDevicePermissions,
+} from './utils/permissions';
 import { releaseScreenWakeLock, requestScreenWakeLock } from './utils/pwaDevice';
 import {
   playArrivalChime,
@@ -117,6 +125,143 @@ const DEFAULT_PROFILE: DriverProfile = {
   additionalDrivers: [],
   documentsUploaded: true,
   faceVerified: true,
+};
+
+const DEFAULT_SETTINGS: DriverSettings = {
+  darkMode: false,
+  soundAlerts: true,
+  autoAccept: false,
+  acceptCash: true,
+  allowBidOffers: true,
+  dispatchWaitSec: 60,
+  minFareFilter: 0,
+  maxPickupKm: 6,
+  minRiderRating: 0,
+  pushNotifications: false,
+  backgroundRefresh: true,
+  refreshIntervalSec: 30,
+  enabledCategories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City'],
+  destinationFilter: {
+    enabled: false,
+    targetCoords: null,
+    targetLabel: null,
+  },
+};
+
+const SETTINGS_STORAGE_PREFIX = 'bolt_driver_settings_v1_';
+const VEHICLE_STORAGE_PREFIX = 'bolt_driver_vehicle_v1_';
+const BOOT_PERMS_DONE_KEY = 'bolt_boot_permissions_done_v1';
+
+const getUserScopeKey = (
+  p: Pick<DriverProfile, 'uid' | 'id' | 'email'>,
+  fUser?: FirebaseUser | null
+): string => {
+  const raw = fUser?.uid || p.uid || p.email || p.id || 'default';
+  return raw.toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
+};
+
+const sanitizeSettingsForFirestore = (s: DriverSettings): DriverSettings => {
+  const validDispatch = ([60, 120, 180, 300] as const).includes(s.dispatchWaitSec)
+    ? s.dispatchWaitSec
+    : 60;
+  const validRefresh = ([15, 30, 60] as const).includes(s.refreshIntervalSec)
+    ? s.refreshIntervalSec
+    : 30;
+  const cleanCategories = Array.isArray(s.enabledCategories)
+    ? s.enabledCategories.filter((c): c is typeof s.enabledCategories[number] => typeof c === 'string' && c.length > 0).slice(0, 10)
+    : [];
+
+  return {
+    darkMode: Boolean(s.darkMode),
+    soundAlerts: Boolean(s.soundAlerts),
+    autoAccept: Boolean(s.autoAccept),
+    acceptCash: Boolean(s.acceptCash),
+    allowBidOffers: Boolean(s.allowBidOffers),
+    dispatchWaitSec: validDispatch,
+    minFareFilter: Math.min(1000, Math.max(0, Number(s.minFareFilter) || 0)),
+    maxPickupKm: Math.min(100, Math.max(1, Number(s.maxPickupKm) || 6)),
+    minRiderRating: Math.min(5, Math.max(0, Number(s.minRiderRating) || 0)),
+    pushNotifications: Boolean(s.pushNotifications),
+    backgroundRefresh: Boolean(s.backgroundRefresh),
+    refreshIntervalSec: validRefresh,
+    enabledCategories: cleanCategories.length > 0 ? cleanCategories : ['Bolt'],
+    destinationFilter: {
+      enabled: Boolean(s.destinationFilter?.enabled),
+      targetCoords:
+        s.destinationFilter?.targetCoords &&
+        typeof s.destinationFilter.targetCoords.lat === 'number' &&
+        typeof s.destinationFilter.targetCoords.lng === 'number'
+          ? {
+              lat: Number(s.destinationFilter.targetCoords.lat),
+              lng: Number(s.destinationFilter.targetCoords.lng),
+            }
+          : null,
+      targetLabel:
+        typeof s.destinationFilter?.targetLabel === 'string' &&
+        s.destinationFilter.targetLabel.trim().length > 0
+          ? s.destinationFilter.targetLabel.slice(0, 120)
+          : null,
+    },
+  };
+};
+
+const mergeLoadedSettings = (saved?: Partial<DriverSettings> | null): DriverSettings => {
+  const notifGranted = getNotificationPermission() === 'granted';
+  if (!saved) {
+    return {
+      ...DEFAULT_SETTINGS,
+      pushNotifications: notifGranted,
+    };
+  }
+  return sanitizeSettingsForFirestore({
+    ...DEFAULT_SETTINGS,
+    ...saved,
+    pushNotifications:
+      saved.pushNotifications !== undefined ? Boolean(saved.pushNotifications) : notifGranted,
+    destinationFilter: {
+      ...DEFAULT_SETTINGS.destinationFilter,
+      ...(saved.destinationFilter || {}),
+    },
+  });
+};
+
+const loadUserSettings = (scopeKey: string): DriverSettings => {
+  try {
+    const raw = localStorage.getItem(`${SETTINGS_STORAGE_PREFIX}${scopeKey}`);
+    if (raw) {
+      return mergeLoadedSettings(JSON.parse(raw) as Partial<DriverSettings>);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return mergeLoadedSettings(null);
+};
+
+const saveUserSettings = (scopeKey: string, s: DriverSettings): void => {
+  try {
+    localStorage.setItem(
+      `${SETTINGS_STORAGE_PREFIX}${scopeKey}`,
+      JSON.stringify(sanitizeSettingsForFirestore(s))
+    );
+  } catch {
+    // Ignore storage errors
+  }
+};
+
+const loadUserVehicleId = (scopeKey: string): string | null => {
+  try {
+    return localStorage.getItem(`${VEHICLE_STORAGE_PREFIX}${scopeKey}`);
+  } catch {
+    return null;
+  }
+};
+
+const saveUserVehicleId = (scopeKey: string, vehicleId: string): void => {
+  try {
+    localStorage.setItem(`${VEHICLE_STORAGE_PREFIX}${scopeKey}`, vehicleId);
+  } catch {
+    // Ignore storage errors
+  }
 };
 
 export default function App() {
@@ -189,7 +334,13 @@ export default function App() {
   const [trips, setTrips] = useState<CompletedTrip[]>(INITIAL_TRIPS);
   const [weeklySeries, setWeeklySeries] = useState(WEEKLY_EARNINGS_SERIES);
   const [campaigns, setCampaigns] = useState<CampaignQuest[]>(INITIAL_CAMPAIGNS);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
+    const savedVehId = loadUserVehicleId(getUserScopeKey(profile));
+    if (savedVehId && INITIAL_VEHICLES.some((v) => v.id === savedVehId)) {
+      return INITIAL_VEHICLES.map((v) => ({ ...v, isActive: v.id === savedVehId }));
+    }
+    return INITIAL_VEHICLES;
+  });
   const [documents, setDocuments] = useState<DriverDocument[]>(INITIAL_DOCUMENTS);
   const [acceptanceRate, setAcceptanceRate] = useState<number>(100);
   const [completionRate, setCompletionRate] = useState<number>(100);
@@ -208,15 +359,25 @@ export default function App() {
   const [showSafetyModal, setShowSafetyModal] = useState(false);
   const [showAccountCreation, setShowAccountCreation] = useState(false);
   const [showBootScreen, setShowBootScreen] = useState(true);
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [callBanner, setCallBanner] = useState<string | null>(null);
 
-  // Notifications & Toasts
+  // Notifications & Device Permissions
   const [toasts, setToasts] = useState<InAppToast[]>([]);
   const [notificationsLog, setNotificationsLog] = useState<string[]>([]);
   const lastNoteRef = useRef<{ title: string; body: string; time: number } | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>(
     () => getNotificationPermission()
   );
+  const [permissionsSnapshot, setPermissionsSnapshot] = useState<AppPermissionsSnapshot>(() => {
+    const perm = getNotificationPermission();
+    return {
+      location: typeof navigator !== 'undefined' && 'geolocation' in navigator ? 'prompt' : 'unsupported',
+      microphone: typeof navigator !== 'undefined' && navigator.mediaDevices ? 'prompt' : 'unsupported',
+      notifications: perm === 'default' ? 'prompt' : perm,
+      wakeLockSupported: typeof navigator !== 'undefined' && 'wakeLock' in navigator,
+    };
+  });
   const [lastBackgroundSync, setLastBackgroundSync] = useState<string>(() => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now
@@ -233,27 +394,15 @@ export default function App() {
   const [nextRequestWaitLeft, setNextRequestWaitLeft] = useState<number>(60);
   const dispatchTriggeredRef = useRef<boolean>(false);
 
-  // Driver Settings
-  const [settings, setSettings] = useState<DriverSettings>({
-    darkMode: false,
-    soundAlerts: true,
-    autoAccept: false,
-    acceptCash: true,
-    allowBidOffers: true,
-    dispatchWaitSec: 60,
-    minFareFilter: 0,
-    maxPickupKm: 6,
-    minRiderRating: 0,
-    pushNotifications: getNotificationPermission() === 'granted',
-    backgroundRefresh: true,
-    refreshIntervalSec: 30,
-    enabledCategories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City'],
-    destinationFilter: {
-      enabled: false,
-      targetCoords: null,
-      targetLabel: null,
-    },
-  });
+  // Driver Settings (Remembered per user)
+  const [settings, setSettings] = useState<DriverSettings>(() =>
+    loadUserSettings(getUserScopeKey(profile))
+  );
+  const activeUserScopeKey = useMemo(
+    () => getUserScopeKey(profile, firebaseUser),
+    [profile.uid, profile.id, profile.email, firebaseUser]
+  );
+  const lastSavedScopeRef = useRef<string>(activeUserScopeKey);
 
   const activeCity = getCityById(currentCityId);
   const activeVehicle = vehicles.find((v) => v.isActive) || vehicles[0];
@@ -364,16 +513,19 @@ export default function App() {
     else root.classList.remove('dark');
   }, [settings.darkMode]);
 
-  // Register firebase-messaging-sw.js on mount
+  // Register firebase-messaging-sw.js & query initial permission statuses on mount
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(() => {});
     }
+    queryAllPermissions()
+      .then((snap) => setPermissionsSnapshot(snap))
+      .catch(() => {});
   }, []);
 
   const lastGpsSyncRef = useRef<number>(0);
 
-  // 1. Firebase Auth & Load User Profile from Firestore
+  // 1. Firebase Auth & Load User Profile + Remembered Settings from Firestore
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (fUser) => {
       setFirebaseUser(fUser);
@@ -382,6 +534,14 @@ export default function App() {
           .then((userDoc) => {
             if (userDoc.exists()) {
               const userData = { ...userDoc.data(), uid: fUser.uid } as DriverProfile;
+              const nextScope = getUserScopeKey(userData, fUser);
+              const localSettings = loadUserSettings(nextScope);
+              const restoredSettings = mergeLoadedSettings({
+                ...localSettings,
+                ...(userData.settings || {}),
+              });
+              const restoredVehicleId = userData.activeVehicleId || loadUserVehicleId(nextScope);
+
               setProfile((prev) => ({
                 ...prev,
                 ...userData,
@@ -391,6 +551,19 @@ export default function App() {
                   ...(userData.documentExpiries || {}),
                 },
               }));
+              setSettings(restoredSettings);
+              setNextRequestWaitLeft(restoredSettings.dispatchWaitSec);
+              saveUserSettings(nextScope, restoredSettings);
+
+              if (restoredVehicleId) {
+                setVehicles((prev) =>
+                  prev.some((v) => v.id === restoredVehicleId)
+                    ? prev.map((v) => ({ ...v, isActive: v.id === restoredVehicleId }))
+                    : prev
+                );
+                saveUserVehicleId(nextScope, restoredVehicleId);
+              }
+
               if (userData.cityId) {
                 setCurrentCityId(userData.cityId);
               }
@@ -445,17 +618,39 @@ export default function App() {
               additionalDrivers: profile.additionalDrivers.slice(0, 10),
               documentsUploaded: profile.documentsUploaded,
               faceVerified: profile.faceVerified,
+              activeVehicleId: activeVehicle.id,
+              settings: sanitizeSettingsForFirestore(settings),
             },
             { merge: true }
           );
           initializeFCMToken(firebaseUser.uid);
         } catch (error) {
-          handleFirestoreError(error, OperationType.WRITE, `users/${firebaseUser.uid}`);
+          if (typeof navigator === 'undefined' || navigator.onLine) {
+            handleFirestoreError(error, OperationType.WRITE, `users/${firebaseUser.uid}`);
+          }
         }
       };
       syncProfile();
     }
   }, [profile, firebaseUser, isProfileLoaded]);
+
+  // 2b. Debounced sync of per-user settings & activeVehicleId to Firestore
+  useEffect(() => {
+    if (!firebaseUser || !isProfileLoaded) return;
+    const timer = setTimeout(async () => {
+      try {
+        await updateDoc(doc(db, 'users', firebaseUser.uid), {
+          activeVehicleId: activeVehicle.id,
+          settings: sanitizeSettingsForFirestore(settings),
+        });
+      } catch (error) {
+        if (typeof navigator === 'undefined' || navigator.onLine) {
+          handleFirestoreError(error, OperationType.UPDATE, `users/${firebaseUser.uid}`);
+        }
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [settings, activeVehicle.id, firebaseUser, isProfileLoaded]);
 
   // Live GPS presence & daily earnings sync to Firestore (throttled for GPS ticks)
   useEffect(() => {
@@ -476,7 +671,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [firebaseUser, isProfileLoaded, driverPos.lat, driverPos.lng, driverHeading, isOnline, todayEarnings, todayTripsCount]);
 
-  // 3. Instant local backup in localStorage (resets isOnline on stored snapshot)
+  // 3. Instant local backup in localStorage + per-user settings/vehicle persistence
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -490,6 +685,15 @@ export default function App() {
       // Ignore storage errors
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (lastSavedScopeRef.current !== activeUserScopeKey) {
+      lastSavedScopeRef.current = activeUserScopeKey;
+      return;
+    }
+    saveUserSettings(activeUserScopeKey, settings);
+    saveUserVehicleId(activeUserScopeKey, activeVehicle.id);
+  }, [settings, activeVehicle.id, activeUserScopeKey]);
 
   // 2-Minute Customer No-Response Timer
   useEffect(() => {
@@ -1106,13 +1310,21 @@ export default function App() {
     vehicle: Vehicle;
     documents: DriverDocument[];
   }) => {
+    const newScopeKey = getUserScopeKey(newProfile, firebaseUser);
+    const existingSavedForUser = loadUserSettings(newScopeKey);
+    const nextSettings: DriverSettings = {
+      ...existingSavedForUser,
+      enabledCategories: newVehicle.categories,
+    };
+
+    saveUserSettings(newScopeKey, nextSettings);
+    saveUserVehicleId(newScopeKey, newVehicle.id);
+
     setProfile(newProfile);
     setVehicles((prev) => [newVehicle, ...prev.map((v) => ({ ...v, isActive: false }))]);
     setDocuments(newDocs);
-    setSettings((s) => ({
-      ...s,
-      enabledCategories: newVehicle.categories,
-    }));
+    setSettings(nextSettings);
+    setNextRequestWaitLeft(nextSettings.dispatchWaitSec);
 
     const city = getCityById(newProfile.cityId);
     setCurrentCityId(city.id);
@@ -1123,7 +1335,7 @@ export default function App() {
     setShowAccountCreation(false);
     setIsProfileLoaded(true);
     setActiveTab('map');
-    playBidAcceptedTone(settings.soundAlerts);
+    playBidAcceptedTone(nextSettings.soundAlerts);
     addToast('Account Active', `Welcome ${newProfile.fullName}!`, 'success');
   };
 
@@ -1203,6 +1415,10 @@ export default function App() {
   const handleEnablePush = async () => {
     const perm = await requestPushPermission();
     setNotificationPermission(perm);
+    setPermissionsSnapshot((prev) => ({
+      ...prev,
+      notifications: perm === 'default' ? 'prompt' : perm,
+    }));
     if (perm === 'granted') {
       setSettings((s) => ({ ...s, pushNotifications: true }));
       if (firebaseUser) initializeFCMToken(firebaseUser.uid);
@@ -1215,6 +1431,67 @@ export default function App() {
       addToast('Permission Denied', 'Browser blocked push notifications.', 'alert');
     }
   };
+
+  const applyPermissionResult = useCallback(
+    (snapshot: AppPermissionsSnapshot, coords?: { lat: number; lng: number }) => {
+      setPermissionsSnapshot(snapshot);
+      const nextNotif: NotificationPermissionState =
+        snapshot.notifications === 'granted'
+          ? 'granted'
+          : snapshot.notifications === 'denied'
+          ? 'denied'
+          : 'default';
+      setNotificationPermission(nextNotif);
+
+      if (snapshot.notifications === 'granted') {
+        setSettings((s) => (s.pushNotifications ? s : { ...s, pushNotifications: true }));
+        if (firebaseUser) initializeFCMToken(firebaseUser.uid);
+      }
+
+      if (coords) {
+        const rounded: LatLng = {
+          lat: Number(coords.lat.toFixed(6)),
+          lng: Number(coords.lng.toFixed(6)),
+        };
+        setDriverPos(rounded);
+        setIsLiveGps(true);
+        setSurgeZones(generateSurgeZonesNear(rounded, currentCityId));
+        setRanks(generateRanksNear(rounded, currentCityId));
+        setBidJobs(generateBidJobsNear(rounded, currentCityId, settings.enabledCategories));
+      }
+    },
+    [firebaseUser, currentCityId, settings.enabledCategories]
+  );
+
+  const handleBootComplete = useCallback(async () => {
+    setShowBootScreen(false);
+    try {
+      const current = await queryAllPermissions();
+      setPermissionsSnapshot(current);
+
+      const bootDone = localStorage.getItem(BOOT_PERMS_DONE_KEY) === 'true';
+      const hasPending =
+        current.location === 'prompt' ||
+        current.microphone === 'prompt' ||
+        current.notifications === 'prompt';
+
+      if (!bootDone || hasPending) {
+        localStorage.setItem(BOOT_PERMS_DONE_KEY, 'true');
+        const { snapshot, coords } = await requestAllDevicePermissions();
+        applyPermissionResult(snapshot, coords);
+
+        if (
+          snapshot.location === 'prompt' ||
+          snapshot.microphone === 'prompt' ||
+          snapshot.notifications === 'prompt'
+        ) {
+          setShowPermissionsModal(true);
+        }
+      }
+    } catch {
+      setShowPermissionsModal(true);
+    }
+  }, [applyPermissionResult]);
 
   const handleSendChat = (text: string) => {
     const now = new Date();
@@ -1423,7 +1700,7 @@ export default function App() {
             })}
           </nav>
 
-          {/* Direct New Driver Account Creation */}
+          {/* Direct New Driver Account Creation & PWA Install */}
           <div className="space-y-2 pt-2">
             <button
               type="button"
@@ -1433,6 +1710,7 @@ export default function App() {
               <UserPlus className="w-4 h-4 text-[#25B670]" />
               <span>Register New Account</span>
             </button>
+            <PWAInstallButton variant="sidebar" />
           </div>
         </div>
 
@@ -1567,6 +1845,8 @@ export default function App() {
 
                 {/* Quick Mobile Actions (kept inside top row, clear of right map rail below) */}
                 <div className="flex items-center gap-1.5 pointer-events-auto lg:hidden shrink-0">
+                  <PWAInstallButton variant="icon" />
+
                   {notificationPermission !== 'granted' && (
                     <button
                       type="button"
@@ -1803,6 +2083,7 @@ export default function App() {
             riderRating={riderRating}
             totalLifetimeTrips={trips.length}
             notificationPermission={notificationPermission}
+            permissionsSnapshot={permissionsSnapshot}
             lastBackgroundSync={lastBackgroundSync}
             notificationsLog={notificationsLog}
             isInsuranceExpired={isInsuranceExpired}
@@ -1812,6 +2093,7 @@ export default function App() {
             onSignInGoogle={handleSignInGoogle}
             onSignOutGoogle={handleSignOutGoogle}
             onOpenInsurance={() => setActiveTab('insurance')}
+            onOpenPermissionsModal={() => setShowPermissionsModal(true)}
             onEnablePushNotifications={handleEnablePush}
             onSendTestNotification={() => {
               if (notificationPermission !== 'granted') {
@@ -1980,7 +2262,17 @@ export default function App() {
 
       {showSafetyModal && <SafetyModal onClose={() => setShowSafetyModal(false)} />}
 
-      <BootScreen isVisible={showBootScreen} onComplete={() => setShowBootScreen(false)} />
+      {showPermissionsModal && (
+        <PermissionsPromptModal
+          permissions={permissionsSnapshot}
+          onUpdatePermissions={applyPermissionResult}
+          onClose={() => setShowPermissionsModal(false)}
+        />
+      )}
+
+      <OfflineIndicator />
+
+      <BootScreen isVisible={showBootScreen} onComplete={handleBootComplete} />
     </div>
   );
 }

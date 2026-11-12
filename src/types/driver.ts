@@ -196,6 +196,8 @@ export interface DriverProfile {
   additionalDrivers: string[];
   documentsUploaded: boolean;
   faceVerified: boolean;
+  activeVehicleId?: string;
+  settings?: Partial<DriverSettings>;
 }
 
 export interface Vehicle {
