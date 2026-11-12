@@ -1,0 +1,93 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "Driver User Profile",
+      "description": "Stores Bolt Driver account details, live GPS state, daily earnings, and vehicle insurance metadata.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the driver",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Driver full legal name",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Driver email address",
+          "maxLength": 160
+        },
+        "phone": {
+          "type": "string",
+          "description": "Driver phone number",
+          "maxLength": 40
+        },
+        "cityId": {
+          "type": "string",
+          "description": "Operating city identifier",
+          "maxLength": 40
+        },
+        "driverType": {
+          "type": "string",
+          "enum": ["Independent", "Fleet"],
+          "description": "Partner registration type"
+        },
+        "isOnline": {
+          "type": "boolean",
+          "description": "Whether the driver is currently online"
+        },
+        "latitude": {
+          "type": "number",
+          "description": "Current vehicle latitude"
+        },
+        "longitude": {
+          "type": "number",
+          "description": "Current vehicle longitude"
+        },
+        "heading": {
+          "type": "number",
+          "description": "Current vehicle bearing in degrees"
+        },
+        "todayEarnings": {
+          "type": "number",
+          "description": "Net driver earnings accumulated today"
+        },
+        "todayTripsCount": {
+          "type": "number",
+          "description": "Number of trips completed today"
+        },
+        "bankBalance": {
+          "type": "number",
+          "description": "Available driver payout wallet balance"
+        },
+        "insuranceCoverage": {
+          "type": "string",
+          "enum": ["taxi", "food", "all"],
+          "description": "Hire & Reward insurance coverage scope"
+        },
+        "insuranceExpiry": {
+          "type": "string",
+          "description": "ISO date YYYY-MM-DD of Vehicle Insurance expiration",
+          "maxLength": 32
+        },
+        "fcmToken": {
+          "type": "string",
+          "description": "Optional Firebase Cloud Messaging registration token",
+          "maxLength": 512
+        }
+      },
+      "required": ["uid", "fullName", "email"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private driver profile, live telemetry, earnings, and insurance state owned by userId."
+    }
+  }
+}
