@@ -26,7 +26,6 @@ import { BootScreen } from './components/BootScreen';
 import { EarningsView } from './components/EarningsView';
 import { IncomingRequestModal } from './components/IncomingRequestModal';
 import { InsuranceRenewalChat, InsuranceView } from './components/InsuranceView';
-import { OfflineIndicator } from './components/OfflineIndicator';
 import {
   CancelRideModal,
   DestinationModal,
@@ -34,8 +33,6 @@ import {
   RiderChatModal,
   SafetyModal,
 } from './components/Overlays';
-import { PermissionsPromptModal } from './components/PermissionsPromptModal';
-import { PWAInstallButton } from './components/PWAInstallButton';
 import { TripPanels } from './components/TripPanels';
 import { WorldDriverMap } from './components/WorldDriverMap';
 import {
@@ -45,7 +42,6 @@ import {
   INITIAL_VEHICLES,
   WEEKLY_EARNINGS_SERIES,
   calculateBearing,
-  exactDistanceKm,
   fetchRoadRoute,
   generateBidJobsNear,
   generateLiveRideRequest,
@@ -54,7 +50,7 @@ import {
   getCityById,
   getFutureIsoDate,
   getTodayDayKey,
-  interpolateLatLng,
+  haversineKm,
 } from './data/worldMapData';
 import {
   OperationType,
@@ -88,11 +84,6 @@ import {
   getNotificationPermission,
   requestPushPermission,
 } from './utils/notifications';
-import {
-  AppPermissionsSnapshot,
-  queryAllPermissions,
-  requestAllDevicePermissions,
-} from './utils/permissions';
 import { releaseScreenWakeLock, requestScreenWakeLock } from './utils/pwaDevice';
 import {
   playArrivalChime,
@@ -126,146 +117,6 @@ const DEFAULT_PROFILE: DriverProfile = {
   additionalDrivers: [],
   documentsUploaded: true,
   faceVerified: true,
-};
-
-const DEFAULT_SETTINGS: DriverSettings = {
-  darkMode: false,
-  soundAlerts: true,
-  autoAccept: false,
-  acceptCash: true,
-  allowBidOffers: true,
-  dispatchWaitSec: 0,
-  minFareFilter: 0,
-  maxPickupKm: 6,
-  minRiderRating: 0,
-  pushNotifications: false,
-  backgroundRefresh: true,
-  refreshIntervalSec: 30,
-  enabledCategories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City'],
-  destinationFilter: {
-    enabled: false,
-    targetCoords: null,
-    targetLabel: null,
-  },
-};
-
-const resolveDispatchWaitSeconds = (settingSec: 0 | 60 | 120 | 180 | 300): number =>
-  settingSec === 0 ? 60 + Math.floor(Math.random() * 241) : settingSec;
-
-const SETTINGS_STORAGE_PREFIX = 'bolt_driver_settings_v1_';
-const VEHICLE_STORAGE_PREFIX = 'bolt_driver_vehicle_v1_';
-const BOOT_PERMS_DONE_KEY = 'bolt_boot_permissions_done_v1';
-
-const getUserScopeKey = (
-  p: Pick<DriverProfile, 'uid' | 'id' | 'email'>,
-  fUser?: FirebaseUser | null
-): string => {
-  const raw = fUser?.uid || p.uid || p.email || p.id || 'default';
-  return raw.toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
-};
-
-const sanitizeSettingsForFirestore = (s: DriverSettings): DriverSettings => {
-  const validDispatch = ([0, 60, 120, 180, 300] as const).includes(s.dispatchWaitSec)
-    ? s.dispatchWaitSec
-    : 0;
-  const validRefresh = ([15, 30, 60] as const).includes(s.refreshIntervalSec)
-    ? s.refreshIntervalSec
-    : 30;
-  const cleanCategories = Array.isArray(s.enabledCategories)
-    ? s.enabledCategories.filter((c): c is typeof s.enabledCategories[number] => typeof c === 'string' && c.length > 0).slice(0, 10)
-    : [];
-
-  return {
-    darkMode: Boolean(s.darkMode),
-    soundAlerts: Boolean(s.soundAlerts),
-    autoAccept: Boolean(s.autoAccept),
-    acceptCash: Boolean(s.acceptCash),
-    allowBidOffers: Boolean(s.allowBidOffers),
-    dispatchWaitSec: validDispatch,
-    minFareFilter: Math.min(1000, Math.max(0, Number(s.minFareFilter) || 0)),
-    maxPickupKm: Math.min(100, Math.max(1, Number(s.maxPickupKm) || 6)),
-    minRiderRating: Math.min(5, Math.max(0, Number(s.minRiderRating) || 0)),
-    pushNotifications: Boolean(s.pushNotifications),
-    backgroundRefresh: Boolean(s.backgroundRefresh),
-    refreshIntervalSec: validRefresh,
-    enabledCategories: cleanCategories.length > 0 ? cleanCategories : ['Bolt'],
-    destinationFilter: {
-      enabled: Boolean(s.destinationFilter?.enabled),
-      targetCoords:
-        s.destinationFilter?.targetCoords &&
-        typeof s.destinationFilter.targetCoords.lat === 'number' &&
-        typeof s.destinationFilter.targetCoords.lng === 'number'
-          ? {
-              lat: Number(s.destinationFilter.targetCoords.lat),
-              lng: Number(s.destinationFilter.targetCoords.lng),
-            }
-          : null,
-      targetLabel:
-        typeof s.destinationFilter?.targetLabel === 'string' &&
-        s.destinationFilter.targetLabel.trim().length > 0
-          ? s.destinationFilter.targetLabel.slice(0, 120)
-          : null,
-    },
-  };
-};
-
-const mergeLoadedSettings = (saved?: Partial<DriverSettings> | null): DriverSettings => {
-  const notifGranted = getNotificationPermission() === 'granted';
-  if (!saved) {
-    return {
-      ...DEFAULT_SETTINGS,
-      pushNotifications: notifGranted,
-    };
-  }
-  return sanitizeSettingsForFirestore({
-    ...DEFAULT_SETTINGS,
-    ...saved,
-    pushNotifications:
-      saved.pushNotifications !== undefined ? Boolean(saved.pushNotifications) : notifGranted,
-    destinationFilter: {
-      ...DEFAULT_SETTINGS.destinationFilter,
-      ...(saved.destinationFilter || {}),
-    },
-  });
-};
-
-const loadUserSettings = (scopeKey: string): DriverSettings => {
-  try {
-    const raw = localStorage.getItem(`${SETTINGS_STORAGE_PREFIX}${scopeKey}`);
-    if (raw) {
-      return mergeLoadedSettings(JSON.parse(raw) as Partial<DriverSettings>);
-    }
-  } catch {
-    // Ignore storage errors
-  }
-  return mergeLoadedSettings(null);
-};
-
-const saveUserSettings = (scopeKey: string, s: DriverSettings): void => {
-  try {
-    localStorage.setItem(
-      `${SETTINGS_STORAGE_PREFIX}${scopeKey}`,
-      JSON.stringify(sanitizeSettingsForFirestore(s))
-    );
-  } catch {
-    // Ignore storage errors
-  }
-};
-
-const loadUserVehicleId = (scopeKey: string): string | null => {
-  try {
-    return localStorage.getItem(`${VEHICLE_STORAGE_PREFIX}${scopeKey}`);
-  } catch {
-    return null;
-  }
-};
-
-const saveUserVehicleId = (scopeKey: string, vehicleId: string): void => {
-  try {
-    localStorage.setItem(`${VEHICLE_STORAGE_PREFIX}${scopeKey}`, vehicleId);
-  } catch {
-    // Ignore storage errors
-  }
 };
 
 export default function App() {
@@ -319,9 +170,7 @@ export default function App() {
   const [previewDropoffRoute, setPreviewDropoffRoute] = useState<LatLng[]>([]);
   const [activeManeuvers, setActiveManeuvers] = useState<ManeuverStep[]>([]);
   const [currentManeuverIndex, setCurrentManeuverIndex] = useState<number>(0);
-  const [currentRouteIndex, setCurrentRouteIndex] = useState<number>(0);
-  const [navSpeedKmh, setNavSpeedKmh] = useState<number>(38);
-  const routeProgressRef = useRef<{ index: number; progress: number }>({ index: 0, progress: 0 });
+  const routeIndexRef = useRef<number>(0);
   const gpsWatchIdRef = useRef<number | null>(null);
 
   // Bid Marketplace (Bolt Flex)
@@ -340,13 +189,7 @@ export default function App() {
   const [trips, setTrips] = useState<CompletedTrip[]>(INITIAL_TRIPS);
   const [weeklySeries, setWeeklySeries] = useState(WEEKLY_EARNINGS_SERIES);
   const [campaigns, setCampaigns] = useState<CampaignQuest[]>(INITIAL_CAMPAIGNS);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
-    const savedVehId = loadUserVehicleId(getUserScopeKey(profile));
-    if (savedVehId && INITIAL_VEHICLES.some((v) => v.id === savedVehId)) {
-      return INITIAL_VEHICLES.map((v) => ({ ...v, isActive: v.id === savedVehId }));
-    }
-    return INITIAL_VEHICLES;
-  });
+  const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);
   const [documents, setDocuments] = useState<DriverDocument[]>(INITIAL_DOCUMENTS);
   const [acceptanceRate, setAcceptanceRate] = useState<number>(100);
   const [completionRate, setCompletionRate] = useState<number>(100);
@@ -365,25 +208,15 @@ export default function App() {
   const [showSafetyModal, setShowSafetyModal] = useState(false);
   const [showAccountCreation, setShowAccountCreation] = useState(false);
   const [showBootScreen, setShowBootScreen] = useState(true);
-  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [callBanner, setCallBanner] = useState<string | null>(null);
 
-  // Notifications & Device Permissions
+  // Notifications & Toasts
   const [toasts, setToasts] = useState<InAppToast[]>([]);
   const [notificationsLog, setNotificationsLog] = useState<string[]>([]);
   const lastNoteRef = useRef<{ title: string; body: string; time: number } | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>(
     () => getNotificationPermission()
   );
-  const [permissionsSnapshot, setPermissionsSnapshot] = useState<AppPermissionsSnapshot>(() => {
-    const perm = getNotificationPermission();
-    return {
-      location: typeof navigator !== 'undefined' && 'geolocation' in navigator ? 'prompt' : 'unsupported',
-      microphone: typeof navigator !== 'undefined' && navigator.mediaDevices ? 'prompt' : 'unsupported',
-      notifications: perm === 'default' ? 'prompt' : perm,
-      wakeLockSupported: typeof navigator !== 'undefined' && 'wakeLock' in navigator,
-    };
-  });
   const [lastBackgroundSync, setLastBackgroundSync] = useState<string>(() => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now
@@ -397,19 +230,30 @@ export default function App() {
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [awaitingRiderReply, setAwaitingRiderReply] = useState(false);
   const [riderNoResponseSec, setRiderNoResponseSec] = useState(0);
-  // Driver Settings (Remembered per user)
-  const [settings, setSettings] = useState<DriverSettings>(() =>
-    loadUserSettings(getUserScopeKey(profile))
-  );
-  const [nextRequestWaitLeft, setNextRequestWaitLeft] = useState<number>(() =>
-    resolveDispatchWaitSeconds(loadUserSettings(getUserScopeKey(profile)).dispatchWaitSec)
-  );
+  const [nextRequestWaitLeft, setNextRequestWaitLeft] = useState<number>(60);
   const dispatchTriggeredRef = useRef<boolean>(false);
-  const activeUserScopeKey = useMemo(
-    () => getUserScopeKey(profile, firebaseUser),
-    [profile.uid, profile.id, profile.email, firebaseUser]
-  );
-  const lastSavedScopeRef = useRef<string>(activeUserScopeKey);
+
+  // Driver Settings
+  const [settings, setSettings] = useState<DriverSettings>({
+    darkMode: false,
+    soundAlerts: true,
+    autoAccept: false,
+    acceptCash: true,
+    allowBidOffers: true,
+    dispatchWaitSec: 60,
+    minFareFilter: 0,
+    maxPickupKm: 6,
+    minRiderRating: 0,
+    pushNotifications: getNotificationPermission() === 'granted',
+    backgroundRefresh: true,
+    refreshIntervalSec: 30,
+    enabledCategories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City'],
+    destinationFilter: {
+      enabled: false,
+      targetCoords: null,
+      targetLabel: null,
+    },
+  });
 
   const activeCity = getCityById(currentCityId);
   const activeVehicle = vehicles.find((v) => v.isActive) || vehicles[0];
@@ -520,19 +364,16 @@ export default function App() {
     else root.classList.remove('dark');
   }, [settings.darkMode]);
 
-  // Register firebase-messaging-sw.js & query initial permission statuses on mount
+  // Register firebase-messaging-sw.js on mount
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(() => {});
     }
-    queryAllPermissions()
-      .then((snap) => setPermissionsSnapshot(snap))
-      .catch(() => {});
   }, []);
 
   const lastGpsSyncRef = useRef<number>(0);
 
-  // 1. Firebase Auth & Load User Profile + Remembered Settings from Firestore
+  // 1. Firebase Auth & Load User Profile from Firestore
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (fUser) => {
       setFirebaseUser(fUser);
@@ -541,14 +382,6 @@ export default function App() {
           .then((userDoc) => {
             if (userDoc.exists()) {
               const userData = { ...userDoc.data(), uid: fUser.uid } as DriverProfile;
-              const nextScope = getUserScopeKey(userData, fUser);
-              const localSettings = loadUserSettings(nextScope);
-              const restoredSettings = mergeLoadedSettings({
-                ...localSettings,
-                ...(userData.settings || {}),
-              });
-              const restoredVehicleId = userData.activeVehicleId || loadUserVehicleId(nextScope);
-
               setProfile((prev) => ({
                 ...prev,
                 ...userData,
@@ -558,19 +391,6 @@ export default function App() {
                   ...(userData.documentExpiries || {}),
                 },
               }));
-              setSettings(restoredSettings);
-              setNextRequestWaitLeft(resolveDispatchWaitSeconds(restoredSettings.dispatchWaitSec));
-              saveUserSettings(nextScope, restoredSettings);
-
-              if (restoredVehicleId) {
-                setVehicles((prev) =>
-                  prev.some((v) => v.id === restoredVehicleId)
-                    ? prev.map((v) => ({ ...v, isActive: v.id === restoredVehicleId }))
-                    : prev
-                );
-                saveUserVehicleId(nextScope, restoredVehicleId);
-              }
-
               if (userData.cityId) {
                 setCurrentCityId(userData.cityId);
               }
@@ -625,39 +445,17 @@ export default function App() {
               additionalDrivers: profile.additionalDrivers.slice(0, 10),
               documentsUploaded: profile.documentsUploaded,
               faceVerified: profile.faceVerified,
-              activeVehicleId: activeVehicle.id,
-              settings: sanitizeSettingsForFirestore(settings),
             },
             { merge: true }
           );
           initializeFCMToken(firebaseUser.uid);
         } catch (error) {
-          if (typeof navigator === 'undefined' || navigator.onLine) {
-            handleFirestoreError(error, OperationType.WRITE, `users/${firebaseUser.uid}`);
-          }
+          handleFirestoreError(error, OperationType.WRITE, `users/${firebaseUser.uid}`);
         }
       };
       syncProfile();
     }
   }, [profile, firebaseUser, isProfileLoaded]);
-
-  // 2b. Debounced sync of per-user settings & activeVehicleId to Firestore
-  useEffect(() => {
-    if (!firebaseUser || !isProfileLoaded) return;
-    const timer = setTimeout(async () => {
-      try {
-        await updateDoc(doc(db, 'users', firebaseUser.uid), {
-          activeVehicleId: activeVehicle.id,
-          settings: sanitizeSettingsForFirestore(settings),
-        });
-      } catch (error) {
-        if (typeof navigator === 'undefined' || navigator.onLine) {
-          handleFirestoreError(error, OperationType.UPDATE, `users/${firebaseUser.uid}`);
-        }
-      }
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [settings, activeVehicle.id, firebaseUser, isProfileLoaded]);
 
   // Live GPS presence & daily earnings sync to Firestore (throttled for GPS ticks)
   useEffect(() => {
@@ -678,7 +476,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [firebaseUser, isProfileLoaded, driverPos.lat, driverPos.lng, driverHeading, isOnline, todayEarnings, todayTripsCount]);
 
-  // 3. Instant local backup in localStorage + per-user settings/vehicle persistence
+  // 3. Instant local backup in localStorage (resets isOnline on stored snapshot)
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -692,15 +490,6 @@ export default function App() {
       // Ignore storage errors
     }
   }, [profile]);
-
-  useEffect(() => {
-    if (lastSavedScopeRef.current !== activeUserScopeKey) {
-      lastSavedScopeRef.current = activeUserScopeKey;
-      return;
-    }
-    saveUserSettings(activeUserScopeKey, settings);
-    saveUserVehicleId(activeUserScopeKey, activeVehicle.id);
-  }, [settings, activeVehicle.id, activeUserScopeKey]);
 
   // 2-Minute Customer No-Response Timer
   useEffect(() => {
@@ -729,7 +518,7 @@ export default function App() {
   const startShift = useCallback(() => {
     requestScreenWakeLock().catch(() => {});
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
     setProfile((p) => ({ ...p, isOnline: true }));
     playSuccessTone(settings.soundAlerts);
@@ -743,7 +532,7 @@ export default function App() {
 
   const handleResumeFromBreak = useCallback(() => {
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
     playSuccessTone(settings.soundAlerts);
     addToast('Back Online', 'Accepting nearby rides & surges again', 'success');
@@ -971,8 +760,7 @@ export default function App() {
       setPreviewDropoffRoute([]);
       setActiveManeuvers(finalReq.maneuversToPickup);
       setCurrentManeuverIndex(0);
-      setCurrentRouteIndex(0);
-      routeProgressRef.current = { index: 0, progress: 0 };
+      routeIndexRef.current = 0;
       setChatMessages([]);
       setUnreadChatCount(0);
       setAwaitingRiderReply(false);
@@ -1008,13 +796,11 @@ export default function App() {
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setAcceptanceRate((r) => Math.max(70, r - 1));
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
   }, [settings.dispatchWaitSec]);
 
@@ -1044,66 +830,28 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
   }, [status, handleAcceptRequest, handleDeclineRequest]);
 
-  // Continuous turn-by-turn GPS navigation along road geometry
+  // Smooth GPS movement along OSRM route + real navigation sound chimes
   useEffect(() => {
     if (status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS') return;
     if (activeRoute.length < 2) return;
 
-    const tickMs = 80;
     const interval = setInterval(() => {
-      let { index, progress } = routeProgressRef.current;
-      if (index >= activeRoute.length - 1) return;
+      const idx = routeIndexRef.current;
+      if (idx >= activeRoute.length - 1) return;
 
-      const currPt = activeRoute[index];
-      const nextPt = activeRoute[index + 1];
-      const segKm = exactDistanceKm(currPt, nextPt);
-      const targetKmh = segKm > 0.06 ? 48 : 34;
-      const travelKm = ((targetKmh / 3600) * (tickMs / 1000)) * 2.2;
+      const curr = activeRoute[idx];
+      const next = activeRoute[idx + 1];
+      const bearing = calculateBearing(curr, next);
+      setDriverHeading(bearing);
+      setDriverPos(next);
+      routeIndexRef.current = idx + 1;
 
-      if (segKm < 0.0005) {
-        index += 1;
-        progress = 0;
-      } else {
-        progress += travelKm / segKm;
-        while (progress >= 1 && index < activeRoute.length - 1) {
-          const remainingRatio = progress - 1;
-          const prevSegKm = exactDistanceKm(activeRoute[index], activeRoute[index + 1]);
-          index += 1;
-          if (index >= activeRoute.length - 1) {
-            progress = 0;
-            break;
-          }
-          const nextSegKm = exactDistanceKm(activeRoute[index], activeRoute[index + 1]);
-          progress = nextSegKm > 0.0005 ? (remainingRatio * prevSegKm) / nextSegKm : 0;
-        }
-      }
-
-      routeProgressRef.current = { index, progress };
-      setCurrentRouteIndex(index);
-      setNavSpeedKmh(Math.round(targetKmh + Math.sin(index * 0.7) * 3));
-
-      if (index >= activeRoute.length - 1) {
-        setDriverPos(activeRoute[activeRoute.length - 1]);
-      } else {
-        const a = activeRoute[index];
-        const b = activeRoute[index + 1];
-        setDriverHeading(calculateBearing(a, b));
-        setDriverPos(interpolateLatLng(a, b, progress));
-      }
-
-      let matchedManIdx = currentManeuverIndex;
-      for (let m = currentManeuverIndex + 1; m < activeManeuvers.length; m++) {
-        if (index >= activeManeuvers[m].pointIndex) {
-          matchedManIdx = m;
-        } else {
-          break;
-        }
-      }
-      if (matchedManIdx > currentManeuverIndex) {
-        setCurrentManeuverIndex(matchedManIdx);
+      const nextMan = activeManeuvers[currentManeuverIndex + 1];
+      if (nextMan && idx + 1 >= nextMan.pointIndex) {
+        setCurrentManeuverIndex((m) => m + 1);
         playNavigationTurnPing(settings.soundAlerts);
       }
-    }, tickMs);
+    }, 360);
 
     return () => clearInterval(interval);
   }, [
@@ -1118,8 +866,6 @@ export default function App() {
     if (!activeRequest) return;
     setDriverPos(activeRequest.pickupCoords);
     setActiveRoute([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setStatus('ARRIVED_PICKUP');
     playArrivalChime(settings.soundAlerts);
     // Start 2-minute customer response watch if rider hasn't replied yet
@@ -1134,8 +880,7 @@ export default function App() {
     setActiveRoute(activeRequest.toDropoffRoute);
     setActiveManeuvers(activeRequest.maneuversToDropoff);
     setCurrentManeuverIndex(0);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
+    routeIndexRef.current = 0;
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setStatus('IN_PROGRESS');
@@ -1147,8 +892,6 @@ export default function App() {
     setDriverPos(activeRequest.dropoffCoords);
     setActiveRoute([]);
     setActiveManeuvers([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setStatus('TRIP_COMPLETED');
@@ -1210,7 +953,7 @@ export default function App() {
 
     setActiveRequest(null);
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
     sendNotification(
       'Trip Paid',
@@ -1225,13 +968,11 @@ export default function App() {
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setCompletionRate((r) => Math.max(85, r - 1));
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
     addToast('Ride Cancelled', reason, 'info');
   };
@@ -1345,8 +1086,7 @@ export default function App() {
     setPreviewDropoffRoute([]);
     setActiveManeuvers(req.maneuversToPickup);
     setCurrentManeuverIndex(0);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
+    routeIndexRef.current = 0;
     setChatMessages([]);
     setUnreadChatCount(0);
     setAwaitingRiderReply(false);
@@ -1366,21 +1106,13 @@ export default function App() {
     vehicle: Vehicle;
     documents: DriverDocument[];
   }) => {
-    const newScopeKey = getUserScopeKey(newProfile, firebaseUser);
-    const existingSavedForUser = loadUserSettings(newScopeKey);
-    const nextSettings: DriverSettings = {
-      ...existingSavedForUser,
-      enabledCategories: newVehicle.categories,
-    };
-
-    saveUserSettings(newScopeKey, nextSettings);
-    saveUserVehicleId(newScopeKey, newVehicle.id);
-
     setProfile(newProfile);
     setVehicles((prev) => [newVehicle, ...prev.map((v) => ({ ...v, isActive: false }))]);
     setDocuments(newDocs);
-    setSettings(nextSettings);
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(nextSettings.dispatchWaitSec));
+    setSettings((s) => ({
+      ...s,
+      enabledCategories: newVehicle.categories,
+    }));
 
     const city = getCityById(newProfile.cityId);
     setCurrentCityId(city.id);
@@ -1391,7 +1123,7 @@ export default function App() {
     setShowAccountCreation(false);
     setIsProfileLoaded(true);
     setActiveTab('map');
-    playBidAcceptedTone(nextSettings.soundAlerts);
+    playBidAcceptedTone(settings.soundAlerts);
     addToast('Account Active', `Welcome ${newProfile.fullName}!`, 'success');
   };
 
@@ -1471,10 +1203,6 @@ export default function App() {
   const handleEnablePush = async () => {
     const perm = await requestPushPermission();
     setNotificationPermission(perm);
-    setPermissionsSnapshot((prev) => ({
-      ...prev,
-      notifications: perm === 'default' ? 'prompt' : perm,
-    }));
     if (perm === 'granted') {
       setSettings((s) => ({ ...s, pushNotifications: true }));
       if (firebaseUser) initializeFCMToken(firebaseUser.uid);
@@ -1487,67 +1215,6 @@ export default function App() {
       addToast('Permission Denied', 'Browser blocked push notifications.', 'alert');
     }
   };
-
-  const applyPermissionResult = useCallback(
-    (snapshot: AppPermissionsSnapshot, coords?: { lat: number; lng: number }) => {
-      setPermissionsSnapshot(snapshot);
-      const nextNotif: NotificationPermissionState =
-        snapshot.notifications === 'granted'
-          ? 'granted'
-          : snapshot.notifications === 'denied'
-          ? 'denied'
-          : 'default';
-      setNotificationPermission(nextNotif);
-
-      if (snapshot.notifications === 'granted') {
-        setSettings((s) => (s.pushNotifications ? s : { ...s, pushNotifications: true }));
-        if (firebaseUser) initializeFCMToken(firebaseUser.uid);
-      }
-
-      if (coords) {
-        const rounded: LatLng = {
-          lat: Number(coords.lat.toFixed(6)),
-          lng: Number(coords.lng.toFixed(6)),
-        };
-        setDriverPos(rounded);
-        setIsLiveGps(true);
-        setSurgeZones(generateSurgeZonesNear(rounded, currentCityId));
-        setRanks(generateRanksNear(rounded, currentCityId));
-        setBidJobs(generateBidJobsNear(rounded, currentCityId, settings.enabledCategories));
-      }
-    },
-    [firebaseUser, currentCityId, settings.enabledCategories]
-  );
-
-  const handleBootComplete = useCallback(async () => {
-    setShowBootScreen(false);
-    try {
-      const current = await queryAllPermissions();
-      setPermissionsSnapshot(current);
-
-      const bootDone = localStorage.getItem(BOOT_PERMS_DONE_KEY) === 'true';
-      const hasPending =
-        current.location === 'prompt' ||
-        current.microphone === 'prompt' ||
-        current.notifications === 'prompt';
-
-      if (!bootDone || hasPending) {
-        localStorage.setItem(BOOT_PERMS_DONE_KEY, 'true');
-        const { snapshot, coords } = await requestAllDevicePermissions();
-        applyPermissionResult(snapshot, coords);
-
-        if (
-          snapshot.location === 'prompt' ||
-          snapshot.microphone === 'prompt' ||
-          snapshot.notifications === 'prompt'
-        ) {
-          setShowPermissionsModal(true);
-        }
-      }
-    } catch {
-      setShowPermissionsModal(true);
-    }
-  }, [applyPermissionResult]);
 
   const handleSendChat = (text: string) => {
     const now = new Date();
@@ -1642,12 +1309,10 @@ export default function App() {
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
+    setNextRequestWaitLeft(settings.dispatchWaitSec);
     setStatus('ONLINE_IDLE');
     sendNotification(
       'Cancellation Fee Credited',
@@ -1671,25 +1336,13 @@ export default function App() {
     }
   };
 
-  // Remaining route ETA & Distance calculation along remaining polyline segments
+  // Remaining route ETA & Distance calculation
   const targetCoord =
     status === 'EN_ROUTE_PICKUP' ? activeRequest?.pickupCoords : activeRequest?.dropoffCoords;
-  const remainingDistKm = useMemo(() => {
-    if (activeRoute.length > 1 && (status === 'EN_ROUTE_PICKUP' || status === 'IN_PROGRESS')) {
-      let totalKm = exactDistanceKm(
-        driverPos,
-        activeRoute[Math.min(activeRoute.length - 1, currentRouteIndex + 1)]
-      );
-      for (let i = currentRouteIndex + 1; i < activeRoute.length - 1; i++) {
-        totalKm += exactDistanceKm(activeRoute[i], activeRoute[i + 1]);
-      }
-      return Math.max(0.1, Number(totalKm.toFixed(1)));
-    }
-    return targetCoord
-      ? Math.max(0.1, Number((exactDistanceKm(driverPos, targetCoord) * 1.18).toFixed(1)))
-      : 0;
-  }, [activeRoute, currentRouteIndex, driverPos, targetCoord, status]);
-  const remainingEtaMin = Math.max(1, Math.round((remainingDistKm / Math.max(20, navSpeedKmh)) * 60));
+  const remainingDistKm = targetCoord
+    ? Math.max(0.1, Number((haversineKm(driverPos, targetCoord) * 1.18).toFixed(1)))
+    : 0;
+  const remainingEtaMin = Math.max(1, Math.round(remainingDistKm * 3.1));
 
   const isTripActive =
     status === 'INCOMING_REQUEST' ||
@@ -1770,7 +1423,7 @@ export default function App() {
             })}
           </nav>
 
-          {/* Direct New Driver Account Creation & PWA Install */}
+          {/* Direct New Driver Account Creation */}
           <div className="space-y-2 pt-2">
             <button
               type="button"
@@ -1780,7 +1433,6 @@ export default function App() {
               <UserPlus className="w-4 h-4 text-[#25B670]" />
               <span>Register New Account</span>
             </button>
-            <PWAInstallButton variant="sidebar" />
           </div>
         </div>
 
@@ -1830,12 +1482,7 @@ export default function App() {
               activeRequest={activeRequest}
               activeRoute={activeRoute}
               previewDropoffRoute={previewDropoffRoute}
-              currentRouteIndex={currentRouteIndex}
               currentManeuver={activeManeuvers[currentManeuverIndex] || null}
-              nextManeuver={activeManeuvers[currentManeuverIndex + 1] || null}
-              navSpeedKmh={navSpeedKmh}
-              remainingEtaMin={remainingEtaMin}
-              remainingDistKm={remainingDistKm}
               surgeZones={surgeZones}
               ranks={ranks}
               activeRankId={activeRankId}
@@ -1920,8 +1567,6 @@ export default function App() {
 
                 {/* Quick Mobile Actions (kept inside top row, clear of right map rail below) */}
                 <div className="flex items-center gap-1.5 pointer-events-auto lg:hidden shrink-0">
-                  <PWAInstallButton variant="icon" />
-
                   {notificationPermission !== 'granted' && (
                     <button
                       type="button"
@@ -2046,7 +1691,6 @@ export default function App() {
                   lastRefreshLabel={lastBackgroundSync}
                   backgroundRefreshEnabled={settings.backgroundRefresh}
                   nextRequestWaitLeft={nextRequestWaitLeft}
-                  isRandomWait={settings.dispatchWaitSec === 0}
                   autoAccept={settings.autoAccept}
                   activeRank={activeRank}
                   rankQueuePos={rankQueuePos}
@@ -2159,7 +1803,6 @@ export default function App() {
             riderRating={riderRating}
             totalLifetimeTrips={trips.length}
             notificationPermission={notificationPermission}
-            permissionsSnapshot={permissionsSnapshot}
             lastBackgroundSync={lastBackgroundSync}
             notificationsLog={notificationsLog}
             isInsuranceExpired={isInsuranceExpired}
@@ -2169,7 +1812,6 @@ export default function App() {
             onSignInGoogle={handleSignInGoogle}
             onSignOutGoogle={handleSignOutGoogle}
             onOpenInsurance={() => setActiveTab('insurance')}
-            onOpenPermissionsModal={() => setShowPermissionsModal(true)}
             onEnablePushNotifications={handleEnablePush}
             onSendTestNotification={() => {
               if (notificationPermission !== 'granted') {
@@ -2277,7 +1919,7 @@ export default function App() {
             setSettings((s) => ({ ...s, ...next }));
             if (next.dispatchWaitSec !== undefined) {
               dispatchTriggeredRef.current = false;
-              setNextRequestWaitLeft(resolveDispatchWaitSeconds(next.dispatchWaitSec));
+              setNextRequestWaitLeft(next.dispatchWaitSec);
             }
           }}
           onClose={() => setShowPrefs(false)}
@@ -2338,17 +1980,7 @@ export default function App() {
 
       {showSafetyModal && <SafetyModal onClose={() => setShowSafetyModal(false)} />}
 
-      {showPermissionsModal && (
-        <PermissionsPromptModal
-          permissions={permissionsSnapshot}
-          onUpdatePermissions={applyPermissionResult}
-          onClose={() => setShowPermissionsModal(false)}
-        />
-      )}
-
-      <OfflineIndicator />
-
-      <BootScreen isVisible={showBootScreen} onComplete={handleBootComplete} />
+      <BootScreen isVisible={showBootScreen} onComplete={() => setShowBootScreen(false)} />
     </div>
   );
 }
