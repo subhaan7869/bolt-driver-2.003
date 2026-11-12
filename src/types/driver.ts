@@ -8,7 +8,7 @@ export type DriverStatus =
   | 'IN_PROGRESS'
   | 'TRIP_COMPLETED';
 
-export type AppTab = 'map' | 'earnings' | 'activity' | 'account' | 'insurance';
+export type AppTab = 'map' | 'schedule' | 'earnings' | 'activity' | 'insurance' | 'account';
 
 export type RideCategory =
   | 'Bolt'
@@ -27,6 +27,13 @@ export type InsuranceCoverage = 'taxi' | 'food' | 'all';
 export interface LatLng {
   lat: number;
   lng: number;
+}
+
+export interface TripStop {
+  id: string;
+  address: string;
+  area: string;
+  coords: LatLng;
 }
 
 export interface CityPreset {
@@ -49,6 +56,7 @@ export interface CityPreset {
     area: string;
     lat: number;
     lng: number;
+    hubType?: 'station' | 'airport' | 'stadium';
   }[];
 }
 
@@ -61,14 +69,29 @@ export interface SurgeZone {
   demandLevel: 'High' | 'Peak';
 }
 
+export interface DistrictDemandZone {
+  id: string;
+  district: string;
+  center: LatLng;
+  radiusMeters: number;
+  hourlyScores: number[];
+  peakWindow: string;
+  busySoonLabel: string;
+  forecastOffsetLabel: string;
+  forecastMultiplier: number;
+}
+
 export interface TaxiRank {
   id: string;
   name: string;
   area: string;
   center: LatLng;
   queueCount: number;
+  totalDrivers: number;
   estWaitMin: number;
   avgFareBoost: string;
+  hubType: 'station' | 'airport' | 'stadium';
+  geofenceRadiusMeters: number;
 }
 
 export interface ManeuverStep {
@@ -93,6 +116,10 @@ export interface RideRequest {
   dropoffCoords: LatLng;
   dropoffAddress: string;
   dropoffArea: string;
+  stops?: TripStop[];
+  pickupPin?: string;
+  waitFeePerMin?: number;
+  waitFeeTotal?: number;
   pickupDistanceKm: number;
   pickupEtaMin: number;
   tripDistanceKm: number;
@@ -110,6 +137,30 @@ export interface RideRequest {
   allowBid: boolean;
   isOutOfCity?: boolean;
   willRiderReply?: boolean;
+  note?: string;
+}
+
+export interface ScheduledRide {
+  id: string;
+  riderName: string;
+  riderRating: number;
+  category: RideCategory;
+  pickupAddress: string;
+  pickupArea: string;
+  dropoffAddress: string;
+  dropoffArea: string;
+  pickupCoords: LatLng;
+  dropoffCoords: LatLng;
+  pickupTimeIso: string;
+  pickupTimeLabel: string;
+  tag: 'Airport Transfer' | 'Morning Commute' | 'Station Express' | 'VIP Business';
+  tripDistanceKm: number;
+  tripEtaMin: number;
+  estimatedFare: number;
+  currency: string;
+  paymentMethod: PaymentMethod;
+  claimed: boolean;
+  pickupPin?: string;
   note?: string;
 }
 
@@ -157,11 +208,44 @@ export interface CompletedTrip {
   distanceKm: number;
   durationMin: number;
   grossFare: number;
+  baseFare?: number;
+  distanceFare?: number;
+  timeFare?: number;
+  waitFee?: number;
   boltCommission: number;
   surgeBonus: number;
   tip: number;
   netEarnings: number;
   riderRatingGiven?: number;
+  stopsCount?: number;
+  pickupPinVerified?: boolean;
+  incidentNote?: string;
+}
+
+export type ExpenseCategory = 'Fuel' | 'EV Charging' | 'Car Wash' | 'Toll' | 'Parking';
+
+export interface ExpenseRecord {
+  id: string;
+  category: ExpenseCategory;
+  amount: number;
+  note: string;
+  dateIso: string;
+  dayKey: string;
+  createdAtMs: number;
+}
+
+export interface IncidentReport {
+  id: string;
+  type: 'SOS / Emergency' | 'Rider Safety' | 'Traffic Incident' | 'Vehicle / Dashcam';
+  summary: string;
+  hasAudioNote: boolean;
+  audioDurationSec?: number;
+  coords: LatLng;
+  tripId?: string;
+  riderName?: string;
+  vehiclePlate: string;
+  createdAtLabel: string;
+  createdAtMs: number;
 }
 
 export interface ChatMessage {
@@ -210,6 +294,11 @@ export interface Vehicle {
   categories: RideCategory[];
   imageUrl: string;
   isActive: boolean;
+  rangeKm: number;
+  maxRangeKm: number;
+  odometerKm: number;
+  nextServiceKm: number;
+  tyreCheckKm: number;
 }
 
 export interface DriverDocument {
@@ -245,6 +334,9 @@ export interface DriverSettings {
   backgroundRefresh: boolean;
   refreshIntervalSec: 15 | 30 | 60;
   enabledCategories: RideCategory[];
+  dailyGoal: number;
+  headingUpNav: boolean;
+  showHeatmap: boolean;
   destinationFilter: {
     enabled: boolean;
     targetCoords: LatLng | null;

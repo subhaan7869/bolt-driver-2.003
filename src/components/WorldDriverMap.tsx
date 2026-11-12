@@ -1,28 +1,35 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import {
+  BatteryCharging,
   Compass,
   CornerUpLeft,
   CornerUpRight,
+  Flame,
+  Fuel,
   Gauge,
   Globe,
   LocateFixed,
   Minus,
   Navigation,
   Plus,
+  RotateCw,
   ShieldAlert,
   Volume2,
   VolumeX,
 } from 'lucide-react';
 import { WORLD_CITIES, exactDistanceKm } from '../data/worldMapData';
 import {
+  DistrictDemandZone,
   DriverStatus,
   LatLng,
   ManeuverStep,
   RideRequest,
   SurgeZone,
   TaxiRank,
+  Vehicle,
 } from '../types/driver';
+import { D3DemandHeatmap } from './D3DemandHeatmap';
 
 interface WorldDriverMapProps {
   driverPos: LatLng;
@@ -38,15 +45,24 @@ interface WorldDriverMapProps {
   remainingEtaMin: number;
   remainingDistKm: number;
   surgeZones: SurgeZone[];
+  districtDemandZones: DistrictDemandZone[];
+  showHeatmap: boolean;
+  headingUpNav: boolean;
   ranks: TaxiRank[];
   activeRankId: string | null;
+  rankQueuePos: number | null;
+  activeVehicle: Vehicle;
   darkMode: boolean;
   soundEnabled: boolean;
   isLiveGps: boolean;
   gpsLoading: boolean;
+  isRerouting?: boolean;
   currentCityId: string;
   destinationTarget: LatLng | null;
-  onRequestLiveGps: () => void;
+  onToggleLiveGps: () => void;
+  onToggleHeatmap: () => void;
+  onToggleHeadingUp: () => void;
+  onRefuelOrCharge: () => void;
   onSelectCity: (cityId: string) => void;
   onToggleSound: () => void;
   onSelectSurgeZone?: (zone: SurgeZone) => void;
@@ -68,15 +84,24 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   remainingEtaMin,
   remainingDistKm,
   surgeZones,
+  districtDemandZones,
+  showHeatmap,
+  headingUpNav,
   ranks,
   activeRankId,
+  rankQueuePos,
+  activeVehicle,
   darkMode,
   soundEnabled,
   isLiveGps,
   gpsLoading,
+  isRerouting,
   currentCityId,
   destinationTarget,
-  onRequestLiveGps,
+  onToggleLiveGps,
+  onToggleHeatmap,
+  onToggleHeadingUp,
+  onRefuelOrCharge,
   onSelectCity,
   onToggleSound,
   onSelectSurgeZone,
@@ -85,6 +110,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const driverMarkerRef = useRef<L.Marker | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
@@ -100,7 +126,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   const rawViteKey = (import.meta.env.VITE_CARTO_API_KEY || '').trim();
   const hasViteCartoKey = Boolean(rawViteKey && rawViteKey !== 'MY_CARTO_API_KEY');
 
-  // Check once if server has a real CARTO_API_KEY configured
   useEffect(() => {
     if (hasViteCartoKey) return;
     fetch('/api/tiles?mode=info')
@@ -133,19 +158,21 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     });
 
     mapRef.current = map;
+    setMapInstance(map);
     routeLayerRef.current = layerGroup;
     surgeLayerRef.current = surgeGroup;
 
     return () => {
       map.remove();
       mapRef.current = null;
+      setMapInstance(null);
     };
   }, []);
 
   const hasCartoKey = hasViteCartoKey || serverCartoConfigured;
   const usingTrueDarkCarto = hasCartoKey && tileSourceTier === 0;
 
-  // Update Tile Layer: Zero-key ArcGIS World Street Map -> OpenStreetMap -> /api/tiles (or CARTO only if configured)
+  // Update Tile Layer: Zero-key ArcGIS World Street Map -> OpenStreetMap -> /api/tiles
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -174,7 +201,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
       }
     } else {
-      // Keyless default: ArcGIS CloudFront CDN first (no API key required, works on Vercel/mobile), then OSM, then proxy
       if (tileSourceTier === 0) {
         tileUrl =
           'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
@@ -206,7 +232,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
 
   const isNavigating = status === 'EN_ROUTE_PICKUP' || status === 'IN_PROGRESS';
 
-  // Snap into closer navigation zoom when entering turn-by-turn navigation
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -229,7 +254,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     prevNavPhaseRef.current = status;
   }, [status, driverPos.lat, driverPos.lng]);
 
-  // Update Driver Navigation Puck & Camera Follow (with forward look-ahead during navigation)
+  // Update Driver Navigation Puck & Camera Follow
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -245,13 +270,15 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       ? `<div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:28px;height:26px;background:linear-gradient(to top, rgba(52,209,134,0.45), rgba(52,209,134,0));clip-path:polygon(15% 0%, 85% 0%, 60% 100%, 40% 100%);pointer-events:none;"></div>`
       : '';
 
+    // When Heading-Up rotation rotates the map canvas by -driverHeading, keep puck arrow facing upward relative to screen!
+    const puckRotate = headingUpNav && isNavigating ? driverHeading : driverHeading;
     const puckSize = isNavigating ? 42 : 36;
     const puckHtml = `
       <div style="position:relative;width:${puckSize}px;height:${puckSize}px;display:flex;align-items:center;justify-content:center;">
         ${pulseHtml}
         <div style="position:relative;width:${isNavigating ? 34 : 30}px;height:${
       isNavigating ? 34 : 30
-    }px;border-radius:9999px;background:#0F172A;border:3px solid #FFFFFF;box-shadow:0 6px 16px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;transform:rotate(${driverHeading}deg);transition:transform 90ms linear;">
+    }px;border-radius:9999px;background:#0F172A;border:3px solid #FFFFFF;box-shadow:0 6px 16px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;transform:rotate(${puckRotate}deg);transition:transform 90ms linear;">
           ${beamHtml}
           <svg width="${isNavigating ? 18 : 16}" height="${
       isNavigating ? 18 : 16
@@ -280,8 +307,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     }
 
     if (followDriver) {
-      if (isNavigating) {
-        // Project camera slightly ahead of vehicle heading & compensate for bottom trip card
+      if (isNavigating && !headingUpNav) {
         const rad = (driverHeading * Math.PI) / 180;
         const lookAheadDeg = 0.00075;
         const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
@@ -290,12 +316,12 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         const targetLng = driverPos.lng + Math.sin(rad) * lookAheadDeg;
         map.panTo([targetLat, targetLng], { animate: true, duration: 0.2 });
       } else {
-        map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.3 });
+        map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.25 });
       }
     }
-  }, [driverPos.lat, driverPos.lng, driverHeading, status, followDriver, isNavigating]);
+  }, [driverPos.lat, driverPos.lng, driverHeading, status, followDriver, isNavigating, headingUpNav]);
 
-  // Render Surge Zones & Taxi Ranks when Offline, Online Idle, or On Break
+  // Render Surge Zones & Geofenced Airport/Stadium Taxi Ranks
   useEffect(() => {
     const group = surgeLayerRef.current;
     if (!group) return;
@@ -311,7 +337,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         weight: 1.5,
         opacity: 0.45,
         fillColor: color,
-        fillOpacity: 0.18,
+        fillOpacity: 0.16,
       })
         .on('click', () => onSelectSurgeZone?.(zone))
         .addTo(group);
@@ -334,29 +360,52 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
 
     ranks.forEach((rank) => {
       const joined = activeRankId === rank.id;
+      const distM = exactDistanceKm(driverPos, rank.center) * 1000;
+      const insideGeofence = distM <= rank.geofenceRadiusMeters;
+      const hubColor =
+        rank.hubType === 'airport' ? '#38BDF8' : rank.hubType === 'stadium' ? '#A855F7' : '#25B670';
+
+      L.circle([rank.center.lat, rank.center.lng], {
+        radius: rank.geofenceRadiusMeters,
+        color: joined ? '#34D186' : hubColor,
+        weight: joined ? 2 : 1.25,
+        dashArray: '5 6',
+        opacity: joined ? 0.85 : 0.45,
+        fillColor: joined ? '#34D186' : hubColor,
+        fillOpacity: insideGeofence || joined ? 0.14 : 0.05,
+      })
+        .on('click', () => onSelectRank?.(rank))
+        .addTo(group);
+
+      const hubBadge =
+        rank.hubType === 'airport' ? '✈' : rank.hubType === 'stadium' ? '🏟' : 'P';
+      const labelText = joined
+        ? `#${rankQueuePos ?? rank.queueCount} of ${rank.totalDrivers}`
+        : `${rank.hubType === 'airport' ? 'Airport' : rank.hubType === 'stadium' ? 'Stadium' : 'Rank'} · ${rank.queueCount}/${rank.totalDrivers}`;
+
       const rankIcon = L.divIcon({
         className: '',
         html: `<div style="background:${
           joined ? '#25B670' : '#1E293B'
         };color:${joined ? '#0F172A' : '#FFFFFF'};font-size:10px;font-weight:800;padding:4px 9px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.28);white-space:nowrap;border:1.5px solid ${
-          joined ? '#FFFFFF' : 'rgba(56,189,248,0.65)'
+          joined ? '#FFFFFF' : hubColor
         };display:inline-flex;align-items:center;gap:4px;">
           <span style="background:${
-            joined ? '#0F172A' : '#38BDF8'
-          };color:${joined ? '#34D186' : '#0F172A'};padding:1px 4px;border-radius:4px;font-weight:900;">P</span>
-          <span>${joined ? 'In Rank' : `Rank · ${rank.queueCount}`}</span>
+            joined ? '#0F172A' : hubColor
+          };color:${joined ? '#34D186' : '#0F172A'};padding:1px 4px;border-radius:4px;font-weight:900;">${hubBadge}</span>
+          <span>${labelText}</span>
         </div>`,
-        iconSize: [86, 26],
-        iconAnchor: [43, 13],
+        iconSize: [112, 26],
+        iconAnchor: [56, 13],
       });
 
       L.marker([rank.center.lat, rank.center.lng], { icon: rankIcon, zIndexOffset: 400 })
         .on('click', () => onSelectRank?.(rank))
         .addTo(group);
     });
-  }, [surgeZones, ranks, activeRankId, status, onSelectSurgeZone, onSelectRank]);
+  }, [surgeZones, ranks, activeRankId, rankQueuePos, status, driverPos.lat, driverPos.lng, onSelectSurgeZone, onSelectRank]);
 
-  // Render Route Polylines (traveled faded + remaining Bolt-green navigation path), Pins & Full-Trip Zoom Out
+  // Render Route Polylines, Multistop Pins, Destination & Full-Trip Zoom Out
   useEffect(() => {
     const group = routeLayerRef.current;
     const map = mapRef.current;
@@ -465,6 +514,32 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       }).addTo(group);
     }
 
+    // Multistop Waypoint Pins
+    if (
+      activeRequest?.stops &&
+      activeRequest.stops.length > 0 &&
+      (status === 'INCOMING_REQUEST' || status === 'IN_PROGRESS')
+    ) {
+      activeRequest.stops.forEach((stop, idx) => {
+        const stopIcon = L.divIcon({
+          className: '',
+          html: `
+            <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-85%);">
+              <div style="background:#F59E0B;color:#0F172A;font-size:10px;font-weight:800;padding:2px 7px;border-radius:7px;white-space:nowrap;margin-bottom:3px;box-shadow:0 3px 8px rgba(0,0,0,0.25);">
+                Stop ${idx + 1} · ${stop.area}
+              </div>
+              <div style="width:20px;height:20px;border-radius:9999px;background:#F59E0B;border:2.5px solid #fff;color:#0F172A;font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,0.28);">
+                ${idx + 1}
+              </div>
+            </div>
+          `,
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
+        });
+        L.marker([stop.coords.lat, stop.coords.lng], { icon: stopIcon }).addTo(group);
+      });
+    }
+
     if (activeRequest && (status === 'INCOMING_REQUEST' || status === 'IN_PROGRESS')) {
       const dropIcon = L.divIcon({
         className: '',
@@ -486,12 +561,12 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       }).addTo(group);
     }
 
-    // Zoom out smoothly to show the entire trip (Driver -> Pickup -> Dropoff) clear of the bottom request card
     if (status === 'INCOMING_REQUEST' && activeRequest && fittedRequestIdRef.current !== activeRequest.id) {
       fittedRequestIdRef.current = activeRequest.id;
       const allPoints: LatLng[] = [
         driverPos,
         activeRequest.pickupCoords,
+        ...(activeRequest.stops?.map((s) => s.coords) || []),
         activeRequest.dropoffCoords,
         ...activeRoute,
         ...previewDropoffRoute,
@@ -527,7 +602,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     });
   };
 
-  // Compute real live distance countdown along the remaining road geometry to the next turn
   const distToManeuverMeters = useMemo(() => {
     const targetIdx = nextManeuver?.pointIndex ?? activeRoute.length - 1;
     if (activeRoute.length > 1 && targetIdx > currentRouteIndex) {
@@ -561,11 +635,25 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   const currentCityName =
     WORLD_CITIES.find((c) => c.id === currentCityId)?.name || 'London';
 
+  const rangePct = Math.round((activeVehicle.rangeKm / Math.max(1, activeVehicle.maxRangeKm)) * 100);
+  const lowRangeWarning = rangePct <= 25;
+
   const renderDirectionIcon = (dir?: 'left' | 'right' | 'straight', sizeClass = 'w-5 h-5 sm:w-6 sm:h-6') => {
     if (dir === 'left') return <CornerUpLeft className={`${sizeClass} stroke-[2.5]`} />;
     if (dir === 'right') return <CornerUpRight className={`${sizeClass} stroke-[2.5]`} />;
     return <Navigation className={`${sizeClass} stroke-[2.5]`} />;
   };
+
+  const mapRotationStyle: React.CSSProperties | undefined =
+    headingUpNav && isNavigating && followDriver
+      ? {
+          transform: `rotate(${-driverHeading}deg) scale(1.42)`,
+          transition: 'transform 220ms linear',
+        }
+      : {
+          transform: 'rotate(0deg) scale(1)',
+          transition: 'transform 220ms ease-out',
+        };
 
   return (
     <div
@@ -573,8 +661,53 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         darkMode ? 'bg-[#14181F]' : 'bg-[#EEF1F4]'
       } ${darkMode && !usingTrueDarkCarto ? 'bolt-dark-tiles' : ''}`}
     >
-      {/* Leaflet World Map Canvas */}
-      <div ref={mapContainerRef} className="w-full h-full z-0" />
+      {/* Rotatable Leaflet World Map Wrapper for North-Up / Heading-Up */}
+      <div className="w-full h-full" style={mapRotationStyle}>
+        <div ref={mapContainerRef} className="w-full h-full z-0" />
+      </div>
+
+      {/* D3 Geospatial District Demand Heatmap & Busy-Soon Forecast Overlay */}
+      <D3DemandHeatmap
+        map={mapInstance}
+        zones={districtDemandZones}
+        visible={showHeatmap && !isNavigating}
+        darkMode={darkMode}
+        onFocusCoords={(coords) => {
+          setFollowDriver(false);
+          mapRef.current?.setView([coords.lat, coords.lng], 15, { animate: true });
+        }}
+        onClose={onToggleHeatmap}
+      />
+
+      {/* Low EV / Fuel Range Guard Suggestion Banner */}
+      {lowRangeWarning && !isNavigating && !showHeatmap && (
+        <div className="absolute top-[max(3.85rem,calc(env(safe-area-inset-top)+3.15rem))] left-2.5 right-[54px] lg:left-5 lg:right-auto lg:w-[400px] z-[395]">
+          <div className="rounded-2xl p-2.5 bg-amber-50 dark:bg-amber-950/90 border border-amber-300 dark:border-amber-800 shadow-lg flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              {activeVehicle.fuelType === 'Electric' ? (
+                <BatteryCharging className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              ) : (
+                <Fuel className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              )}
+              <div className="text-[11px] min-w-0">
+                <div className="font-extrabold text-amber-950 dark:text-amber-200 truncate">
+                  Low {activeVehicle.fuelType === 'Electric' ? 'Battery' : 'Fuel'} · {activeVehicle.rangeKm} km left
+                </div>
+                <div className="text-amber-800/80 dark:text-amber-300/80 truncate">
+                  Out-of-city Bolt City jobs paused until recharge
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onRefuelOrCharge}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 text-[11px] font-extrabold shrink-0"
+            >
+              {activeVehicle.fuelType === 'Electric' ? 'Charge' : 'Refuel'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Top Real-Time Turn-by-Turn Navigation HUD */}
       {isNavigating && (
@@ -591,7 +724,13 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
                     : `${distToManeuverMeters} m`}
                 </span>
                 <span className="text-[11px] sm:text-xs text-[#34D186] font-bold whitespace-nowrap">
-                  {status === 'EN_ROUTE_PICKUP' ? 'To pickup' : 'To destination'}
+                  {isRerouting
+                    ? 'Rerouting via OSRM...'
+                    : status === 'EN_ROUTE_PICKUP'
+                    ? 'To pickup'
+                    : activeRequest?.stops && activeRequest.stops.length > 0
+                    ? `To stop / dropoff`
+                    : 'To destination'}
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-slate-100 font-semibold truncate">
@@ -616,7 +755,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
             </button>
           </div>
 
-          {/* Upcoming Next Turn + Live Speed / ETA Telemetry Strip */}
           <div className="flex flex-wrap items-center gap-1.5">
             {nextManeuver && (
               <div className="inline-flex items-center gap-1.5 bg-slate-900/92 text-slate-100 rounded-xl px-2.5 py-1.5 text-[11px] font-bold shadow-lg border border-white/10 max-w-full truncate">
@@ -644,6 +782,18 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         </div>
       )}
 
+      {/* Floating Recenter Button when panned away */}
+      {!followDriver && status !== 'INCOMING_REQUEST' && (
+        <button
+          type="button"
+          onClick={handleRecenter}
+          className="absolute left-3 bottom-[calc(14.5rem+env(safe-area-inset-bottom,0px))] lg:left-[440px] lg:bottom-6 z-[410] px-3.5 h-10 rounded-full bg-slate-950 text-white border border-white/15 shadow-xl text-xs font-extrabold flex items-center gap-1.5 active:scale-95 transition-transform"
+        >
+          <Compass className="w-4 h-4 text-[#34D186]" />
+          <span>Recenter</span>
+        </button>
+      )}
+
       {/* Right Floating Map Controls — compact on phones, non-overlapping vertical rail */}
       <div
         className={`absolute right-2.5 sm:right-3 z-[420] flex flex-col gap-1.5 sm:gap-2 ${
@@ -662,65 +812,103 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
           <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
 
+        {!isNavigating && (
+          <button
+            type="button"
+            onClick={onToggleHeatmap}
+            aria-label="Toggle D3 Demand Heatmap"
+            className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center active:scale-95 transition-all ${
+              showHeatmap
+                ? 'bg-orange-500 text-white border-orange-400'
+                : 'bg-white/95 dark:bg-slate-900/95 text-orange-500 border-slate-200/80 dark:border-slate-700'
+            }`}
+            title="D3 Demand Heatmap & Peak Hours"
+          >
+            <Flame className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={onRequestLiveGps}
-          aria-label="Use live GPS location"
+          onClick={onToggleLiveGps}
+          aria-label="Toggle Live Phone GPS vs Simulated Drive"
           className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center active:scale-95 transition-all ${
             isLiveGps
               ? 'bg-sky-600 text-white border-sky-500'
               : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-slate-700'
           }`}
-          title={gpsLoading ? 'Locating GPS...' : 'Use Live GPS Location'}
+          title={
+            gpsLoading
+              ? 'Locating GPS...'
+              : isLiveGps
+              ? 'Live Phone GPS Active (tap for Simulated Drive)'
+              : 'Simulated Drive (tap for Live Phone GPS)'
+          }
         >
           <LocateFixed className={`w-4 h-4 sm:w-5 sm:h-5 ${gpsLoading ? 'animate-spin' : ''}`} />
         </button>
 
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowCityPicker((s) => !s)}
-            aria-label="Switch world city"
-            className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:scale-105 active:scale-95 transition-transform"
-            title={`World Map City: ${currentCityName}`}
-          >
-            <Globe className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
+        {!isNavigating && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowCityPicker((s) => !s)}
+              aria-label="Switch world city"
+              className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:scale-105 active:scale-95 transition-transform"
+              title={`World Map City: ${currentCityName}`}
+            >
+              <Globe className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
 
-          {showCityPicker && (
-            <>
-              <div
-                className="fixed inset-0 z-[440]"
-                onClick={() => setShowCityPicker(false)}
-                aria-hidden="true"
-              />
-              <div className="absolute right-11 sm:right-13 top-0 w-44 sm:w-52 max-h-[42dvh] overflow-y-auto z-[450] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 sm:p-2 space-y-0.5 sm:space-y-1">
-                <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                  World Cities
+            {showCityPicker && (
+              <>
+                <div
+                  className="fixed inset-0 z-[440]"
+                  onClick={() => setShowCityPicker(false)}
+                  aria-hidden="true"
+                />
+                <div className="absolute right-11 sm:right-13 top-0 w-44 sm:w-52 max-h-[42dvh] overflow-y-auto z-[450] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 sm:p-2 space-y-0.5 sm:space-y-1">
+                  <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                    World Cities
+                  </div>
+                  {WORLD_CITIES.map((city) => (
+                    <button
+                      key={city.id}
+                      type="button"
+                      onClick={() => {
+                        onSelectCity(city.id);
+                        setFollowDriver(true);
+                        setShowCityPicker(false);
+                      }}
+                      className={`w-full min-h-[36px] sm:min-h-[42px] px-2.5 py-1.5 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-colors ${
+                        !isLiveGps && currentCityId === city.id
+                          ? 'bg-[#34D186]/15 text-slate-950 dark:text-white'
+                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <span>{city.name}</span>
+                      <span className="text-[11px] text-slate-400 font-medium">{city.currency.trim()}</span>
+                    </button>
+                  ))}
                 </div>
-                {WORLD_CITIES.map((city) => (
-                  <button
-                    key={city.id}
-                    type="button"
-                    onClick={() => {
-                      onSelectCity(city.id);
-                      setFollowDriver(true);
-                      setShowCityPicker(false);
-                    }}
-                    className={`w-full min-h-[36px] sm:min-h-[42px] px-2.5 py-1.5 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-colors ${
-                      !isLiveGps && currentCityId === city.id
-                        ? 'bg-[#34D186]/15 text-slate-950 dark:text-white'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <span>{city.name}</span>
-                    <span className="text-[11px] text-slate-400 font-medium">{city.currency.trim()}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+              </>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={onToggleHeadingUp}
+          aria-label="Toggle North-Up / Heading-Up view"
+          className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center transition-all ${
+            headingUpNav
+              ? 'bg-[#34D186] text-slate-950 border-[#28B872]'
+              : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-slate-700'
+          }`}
+          title={headingUpNav ? 'Heading-Up Rotation ON (tap for North-Up)' : '2D North-Up View (tap for Heading-Up)'}
+        >
+          <RotateCw className="w-4 h-4 sm:w-5 sm:h-5" />
+        </button>
 
         <button
           type="button"
@@ -728,10 +916,10 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
           aria-label="Recenter map on vehicle"
           className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center transition-all ${
             followDriver
-              ? 'bg-[#34D186] text-slate-950 border-[#28B872]'
+              ? 'bg-slate-900 text-[#34D186] border-slate-700'
               : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-slate-700'
           }`}
-          title="Recenter on Driver"
+          title={followDriver ? 'Following Vehicle' : 'Tap to Recenter Camera'}
         >
           <Compass className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>

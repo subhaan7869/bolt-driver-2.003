@@ -32,7 +32,8 @@ service cloud.firestore {
           'darkMode', 'soundAlerts', 'autoAccept', 'acceptCash', 'allowBidOffers',
           'dispatchWaitSec', 'minFareFilter', 'maxPickupKm', 'minRiderRating',
           'pushNotifications', 'backgroundRefresh', 'refreshIntervalSec',
-          'enabledCategories', 'destinationFilter'
+          'enabledCategories', 'dailyGoal', 'headingUpNav', 'showHeatmap',
+          'destinationFilter'
         ])
         && (!('darkMode' in s) || s.darkMode is bool)
         && (!('soundAlerts' in s) || s.soundAlerts is bool)
@@ -41,6 +42,9 @@ service cloud.firestore {
         && (!('allowBidOffers' in s) || s.allowBidOffers is bool)
         && (!('pushNotifications' in s) || s.pushNotifications is bool)
         && (!('backgroundRefresh' in s) || s.backgroundRefresh is bool)
+        && (!('headingUpNav' in s) || s.headingUpNav is bool)
+        && (!('showHeatmap' in s) || s.showHeatmap is bool)
+        && (!('dailyGoal' in s) || (s.dailyGoal is number && s.dailyGoal >= 20 && s.dailyGoal <= 2000))
         && (!('dispatchWaitSec' in s) || s.dispatchWaitSec in [0, 60, 120, 180, 300])
         && (!('minFareFilter' in s) || (s.minFareFilter is number && s.minFareFilter >= 0 && s.minFareFilter <= 1000))
         && (!('maxPickupKm' in s) || (s.maxPickupKm is number && s.maxPickupKm >= 1 && s.maxPickupKm <= 100))
@@ -97,6 +101,44 @@ service cloud.firestore {
         && (!('settings' in data) || isValidDriverSettings(data.settings));
     }
 
+    function isValidExpense(data, userId, expenseId) {
+      return data.keys().hasAll(['id', 'uid', 'category', 'amount', 'dateIso', 'dayKey', 'createdAtMs'])
+        && data.keys().hasOnly(['id', 'uid', 'category', 'amount', 'note', 'dateIso', 'dayKey', 'createdAtMs'])
+        && data.id is string && data.id == expenseId && data.id.size() <= 64
+        && data.uid is string && data.uid == userId && data.uid.size() <= 128
+        && data.category in ['Fuel', 'EV Charging', 'Car Wash', 'Toll', 'Parking']
+        && data.amount is number && data.amount > 0 && data.amount <= 5000
+        && (!('note' in data) || (data.note is string && data.note.size() <= 140))
+        && data.dateIso is string && data.dateIso.size() <= 32
+        && data.dayKey is string && data.dayKey.size() <= 12
+        && data.createdAtMs is number;
+    }
+
+    function isValidIncident(data, userId, incidentId) {
+      return data.keys().hasAll(['id', 'uid', 'type', 'summary', 'hasAudioNote', 'vehiclePlate', 'createdAtLabel', 'createdAtMs'])
+        && data.keys().hasOnly([
+          'id', 'uid', 'type', 'summary', 'hasAudioNote', 'audioDurationSec',
+          'coords', 'tripId', 'riderName', 'vehiclePlate', 'createdAtLabel', 'createdAtMs'
+        ])
+        && data.id is string && data.id == incidentId && data.id.size() <= 64
+        && data.uid is string && data.uid == userId && data.uid.size() <= 128
+        && data.type in ['SOS / Emergency', 'Rider Safety', 'Traffic Incident', 'Vehicle / Dashcam']
+        && data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 300
+        && data.hasAudioNote is bool
+        && (!('audioDurationSec' in data) || (data.audioDurationSec is number && data.audioDurationSec >= 0 && data.audioDurationSec <= 600))
+        && (!('tripId' in data) || (data.tripId is string && data.tripId.size() <= 64))
+        && (!('riderName' in data) || (data.riderName is string && data.riderName.size() <= 80))
+        && (!('coords' in data) || (
+          data.coords is map
+          && data.coords.keys().hasOnly(['lat', 'lng'])
+          && data.coords.lat is number
+          && data.coords.lng is number
+        ))
+        && data.vehiclePlate is string && data.vehiclePlate.size() <= 24
+        && data.createdAtLabel is string && data.createdAtLabel.size() <= 40
+        && data.createdAtMs is number;
+    }
+
     match /users/{userId} {
       // Strictly isolate PII and driver metrics to the authenticated owner
       allow get: if isOwner(userId);
@@ -121,6 +163,30 @@ service cloud.firestore {
         ]);
 
       allow delete: if isOwner(userId);
+
+      match /expenses/{expenseId} {
+        allow get: if isOwner(userId) && isValidId(expenseId);
+        allow list: if isOwner(userId) && resource.data.uid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(expenseId)
+          && request.auth.token.email_verified == true
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid
+          && isValidExpense(incoming(), userId, expenseId);
+        allow delete: if isOwner(userId) && isValidId(expenseId);
+      }
+
+      match /incidents/{incidentId} {
+        allow get: if isOwner(userId) && isValidId(incidentId);
+        allow list: if isOwner(userId) && resource.data.uid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(incidentId)
+          && request.auth.token.email_verified == true
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid
+          && isValidIncident(incoming(), userId, incidentId);
+        allow delete: if isOwner(userId) && isValidId(incidentId);
+      }
     }
   }
 }
