@@ -10,6 +10,7 @@ import {
   Star,
 } from 'lucide-react';
 import { ScheduledRide } from '../types/driver';
+import { formatMiles } from '../utils/units';
 
 interface ScheduledRidesViewProps {
   rides: ScheduledRide[];
@@ -162,7 +163,7 @@ export const ScheduledRidesView: React.FC<ScheduledRidesViewProps> = ({
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 pt-0.5 tabular-nums">
                     <span>
-                      {ride.tripDistanceKm} km · {ride.tripEtaMin} min · {ride.paymentMethod}
+                      {formatMiles(ride.tripDistanceKm)} · {ride.tripEtaMin} min · {ride.paymentMethod}
                     </span>
                     {ride.pickupPin && (
                       <>

@@ -28,6 +28,7 @@ import {
   ExpenseRecord,
   IncidentReport,
 } from '../types/driver';
+import { formatMiles, kmToMi } from '../utils/units';
 
 interface EarningsViewProps {
   trips: CompletedTrip[];
@@ -46,6 +47,8 @@ interface EarningsViewProps {
   vehicleLabel?: string;
   vehiclePlate?: string;
   onCashOut: (amount: number) => void;
+  onReportLostItem?: (tripId: string, item: string, creditReturnFee: boolean) => void;
+  onSubmitCleaningClaim?: (tripId: string, amount: number, reason: string) => void;
 }
 
 const EXPENSE_CATEGORIES: ExpenseCategory[] = [
@@ -81,14 +84,25 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
   vehicleLabel = 'Approved Bolt Vehicle',
   vehiclePlate = 'BLT 01',
   onCashOut,
+  onReportLostItem,
+  onSubmitCleaningClaim,
 }) => {
   const todayKey = getTodayDayKey();
   const [timeframe, setTimeframe] = useState<'today' | 'week' | 'month'>('today');
   const [selectedDay, setSelectedDay] = useState<string>(todayKey);
-  const [selectedTrip, setSelectedTrip] = useState<CompletedTrip | null>(null);
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [showCashOutModal, setShowCashOutModal] = useState(false);
   const [cashOutSuccess, setCashOutSuccess] = useState<number | null>(null);
   const [receiptActionNote, setReceiptActionNote] = useState<string | null>(null);
+  const [lostItemText, setLostItemText] = useState('');
+  const [lostReturnFee, setLostReturnFee] = useState(true);
+  const [cleaningTier, setCleaningTier] = useState<40 | 80 | 120>(80);
+  const [cleaningReason, setCleaningReason] = useState('');
+
+  const selectedTrip = useMemo(
+    () => (selectedTripId ? trips.find((t) => t.id === selectedTripId) || null : null),
+    [selectedTripId, trips]
+  );
 
   // Expense quick form
   const [expCategory, setExpCategory] = useState<ExpenseCategory>('EV Charging');
@@ -128,13 +142,14 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
     shiftHours >= 0.05
       ? shiftHours
       : todayTrips.reduce((sum, t) => sum + t.durationMin, 0) / 60;
-  const effectiveKm =
+  const effectiveMi = kmToMi(
     shiftDistanceKm > 0
       ? shiftDistanceKm
-      : todayTrips.reduce((sum, t) => sum + t.distanceKm, 0);
+      : todayTrips.reduce((sum, t) => sum + t.distanceKm, 0)
+  );
 
   const earningsPerHour = effectiveHours > 0 ? todayTotal / effectiveHours : 0;
-  const earningsPerKm = effectiveKm > 0 ? todayTotal / effectiveKm : 0;
+  const earningsPerMile = effectiveMi > 0 ? todayTotal / effectiveMi : 0;
 
   // Daily goal progress ring
   const safeGoal = Math.max(20, dailyGoal || 150);
@@ -179,7 +194,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
       'Date/Day',
       'Category',
       'Description',
-      'DistanceKm',
+      'DistanceMi',
       'DurationMin',
       'GrossAmount',
       'SurgeBonus',
@@ -194,7 +209,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
       `${t.dayKey} ${t.completedAt}`,
       t.category,
       `"${t.pickupAddress.replace(/"/g, '""')} -> ${t.dropoffAddress.replace(/"/g, '""')}"`,
-      t.distanceKm.toFixed(1),
+      kmToMi(t.distanceKm).toFixed(1),
       String(t.durationMin),
       t.grossFare.toFixed(2),
       t.surgeBonus.toFixed(2),
@@ -224,7 +239,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
       new Date().toISOString().slice(0, 10),
       'Summary',
       '"Total Net Profit After Expenses"',
-      trips.reduce((s, t) => s + t.distanceKm, 0).toFixed(1),
+      kmToMi(trips.reduce((s, t) => s + t.distanceKm, 0)).toFixed(1),
       String(trips.reduce((s, t) => s + t.durationMin, 0)),
       trips.reduce((s, t) => s + t.grossFare, 0).toFixed(2),
       trips.reduce((s, t) => s + t.surgeBonus, 0).toFixed(2),
@@ -250,6 +265,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
   // Compute itemized receipt values reliably (backfills older trips cleanly)
   const getTripBreakdown = (trip: CompletedTrip) => {
     const waitFee = Number((trip.waitFee || 0).toFixed(2));
+    const tollFee = Number((trip.tollFee || 0).toFixed(2));
     const surge = Number((trip.surgeBonus || 0).toFixed(2));
     const commission = Number((trip.boltCommission || 0).toFixed(2));
     const tip = Number((trip.tip || 0).toFixed(2));
@@ -274,6 +290,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
       timeFare,
       surge,
       waitFee,
+      tollFee,
       commission,
       tip,
       attachedIncident,
@@ -330,15 +347,16 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
       <strong>Passenger:</strong> ${escapeHtml(trip.riderName)} · ${escapeHtml(trip.category)} · ${escapeHtml(trip.paymentMethod)}<br/>
       <strong>Pickup:</strong> ${escapeHtml(trip.pickupAddress)}<br/>
       <strong>Dropoff:</strong> ${escapeHtml(trip.dropoffAddress)}<br/>
-      <strong>Metrics:</strong> ${trip.distanceKm.toFixed(1)} km · ${trip.durationMin} min${trip.stopsCount ? ` · ${trip.stopsCount} intermediate stop(s)` : ''}${trip.pickupPinVerified ? ' · 4-Digit PIN Verified' : ''}
+      <strong>Metrics:</strong> ${formatMiles(trip.distanceKm)} · ${trip.durationMin} min${trip.stopsCount ? ` · ${trip.stopsCount} intermediate stop(s)` : ''}${trip.pickupPinVerified ? ' · 4-Digit PIN Verified' : ''}
     </div>
     <div class="section-title">Itemized Fare &amp; Commission Breakdown</div>
     <table>
       <tr><td>Base fare</td><td class="val">${escapeHtml(currency)}${bd.baseFare.toFixed(2)}</td></tr>
-      <tr><td>Distance fare (${trip.distanceKm.toFixed(1)} km)</td><td class="val">${escapeHtml(currency)}${bd.distanceFare.toFixed(2)}</td></tr>
+      <tr><td>Distance fare (${formatMiles(trip.distanceKm)})</td><td class="val">${escapeHtml(currency)}${bd.distanceFare.toFixed(2)}</td></tr>
       <tr><td>Time fare (${trip.durationMin} min)</td><td class="val">${escapeHtml(currency)}${bd.timeFare.toFixed(2)}</td></tr>
       ${bd.surge > 0 ? `<tr><td>Dynamic surge bonus</td><td class="val pos">+${escapeHtml(currency)}${bd.surge.toFixed(2)}</td></tr>` : ''}
       ${bd.waitFee > 0 ? `<tr><td>Paid pickup wait time</td><td class="val pos">+${escapeHtml(currency)}${bd.waitFee.toFixed(2)}</td></tr>` : ''}
+      ${bd.tollFee > 0 ? `<tr><td>${escapeHtml(trip.tollLabel || 'Toll / Airport pass-through')} (0% fee)</td><td class="val pos">+${escapeHtml(currency)}${bd.tollFee.toFixed(2)}</td></tr>` : ''}
       <tr><td><strong>Gross passenger fare</strong></td><td class="val">${escapeHtml(currency)}${trip.grossFare.toFixed(2)}</td></tr>
       <tr><td>Bolt service commission (15%)</td><td class="val neg">-${escapeHtml(currency)}${bd.commission.toFixed(2)}</td></tr>
       ${bd.tip > 0 ? `<tr><td>Rider tip (0% fee)</td><td class="val pos">+${escapeHtml(currency)}${bd.tip.toFixed(2)}</td></tr>` : ''}
@@ -370,11 +388,12 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
       `${trip.dayKey} ${trip.completedAt} · ${trip.category} · ${trip.paymentMethod}`,
       `Pickup: ${trip.pickupAddress}`,
       `Dropoff: ${trip.dropoffAddress}`,
-      `Distance/Time: ${trip.distanceKm.toFixed(1)} km · ${trip.durationMin} min`,
+      `Distance/Time: ${formatMiles(trip.distanceKm)} · ${trip.durationMin} min`,
       `Base Fare: ${currency}${bd.baseFare.toFixed(2)}`,
       `Distance & Time: ${currency}${(bd.distanceFare + bd.timeFare).toFixed(2)}`,
       ...(bd.surge > 0 ? [`Surge Bonus: +${currency}${bd.surge.toFixed(2)}`] : []),
       ...(bd.waitFee > 0 ? [`Wait Fee: +${currency}${bd.waitFee.toFixed(2)}`] : []),
+      ...(bd.tollFee > 0 ? [`${trip.tollLabel || 'Toll Pass-Through'}: +${currency}${bd.tollFee.toFixed(2)}`] : []),
       `Bolt Fee (15%): -${currency}${bd.commission.toFixed(2)}`,
       ...(bd.tip > 0 ? [`Tip: +${currency}${bd.tip.toFixed(2)}`] : []),
       `NET PAYOUT: ${currency}${trip.netEarnings.toFixed(2)}`,
@@ -526,11 +545,11 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                 </div>
                 <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
                   <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                    Per kilometre
+                    Per mile
                   </div>
                   <div className="text-lg font-extrabold text-slate-950 dark:text-white font-mono-num">
                     {currency}
-                    {earningsPerKm.toFixed(2)}/km
+                    {earningsPerMile.toFixed(2)}/mi
                   </div>
                 </div>
               </div>
@@ -813,7 +832,11 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                   <button
                     key={trip.id}
                     type="button"
-                    onClick={() => setSelectedTrip(trip)}
+                    onClick={() => {
+                      setSelectedTripId(trip.id);
+                      setLostItemText('');
+                      setCleaningReason('');
+                    }}
                     className="w-full px-5 sm:px-6 py-4 flex items-center justify-between gap-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-left transition-colors"
                   >
                     <div className="min-w-0 flex-1 space-y-1">
@@ -825,7 +848,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                         <span>{trip.category}</span>
                         <span aria-hidden="true">·</span>
                         <span>
-                          {trip.distanceKm} km / {trip.durationMin} min
+                          {formatMiles(trip.distanceKm)} / {trip.durationMin} min
                         </span>
                         {(trip.stopsCount || 0) > 0 && (
                           <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-bold">
@@ -885,7 +908,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedTrip(null)}
+                onClick={() => setSelectedTripId(null)}
                 aria-label="Close receipt"
                 className="w-11 h-11 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0"
               >
@@ -916,7 +939,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
               <div className="flex flex-wrap items-center gap-2 text-slate-500 pt-1">
                 <span className="inline-flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5" />
-                  {selectedTrip.durationMin} min · {selectedTrip.distanceKm} km ·{' '}
+                  {selectedTrip.durationMin} min · {formatMiles(selectedTrip.distanceKm)} ·{' '}
                   {selectedTrip.paymentMethod}
                 </span>
                 {selectedTrip.pickupPinVerified && (
@@ -943,7 +966,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                 </span>
               </div>
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span>Distance fare ({selectedTrip.distanceKm} km)</span>
+                <span>Distance fare ({formatMiles(selectedTrip.distanceKm)})</span>
                 <span className="font-mono-num">
                   {currency}
                   {selectedBreakdown.distanceFare.toFixed(2)}
@@ -971,6 +994,15 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                   <span className="font-mono-num">
                     +{currency}
                     {selectedBreakdown.waitFee.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {selectedBreakdown.tollFee > 0 && (
+                <div className="flex justify-between text-sky-600 dark:text-sky-400 font-semibold">
+                  <span>{selectedTrip.tollLabel || 'Toll / Airport pass-through'}</span>
+                  <span className="font-mono-num">
+                    +{currency}
+                    {selectedBreakdown.tollFee.toFixed(2)}
                   </span>
                 </div>
               )}
@@ -1020,6 +1052,112 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                 {selectedTrip.netEarnings.toFixed(2)}
               </span>
             </div>
+
+            {/* Post-Trip Lost Property & Cleaning Fee Claims */}
+            {(onReportLostItem || onSubmitCleaningClaim) && (
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700 space-y-3 text-xs">
+                <div className="font-extrabold text-slate-900 dark:text-white">
+                  Post-Trip Claims &amp; Found Property
+                </div>
+
+                {selectedTrip.lostItemReport ? (
+                  <div className="px-2.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold">
+                    Found Item Logged: {selectedTrip.lostItemReport.item}
+                    {selectedTrip.lostItemReport.returnFeeCredited
+                      ? ` (+${currency}${selectedTrip.lostItemReport.returnFeeCredited} return fee)`
+                      : ''}
+                  </div>
+                ) : (
+                  onReportLostItem && (
+                    <div className="space-y-1.5">
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={lostItemText}
+                          onChange={(e) => setLostItemText(e.target.value)}
+                          placeholder="Found item (e.g. Black iPhone, keys)"
+                          className="flex-1 h-9 px-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!lostItemText.trim()) return;
+                            onReportLostItem(selectedTrip.id, lostItemText.trim(), lostReturnFee);
+                            setLostItemText('');
+                          }}
+                          className="px-3 h-9 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-bold text-[11px] shrink-0"
+                        >
+                          Log Found Item
+                        </button>
+                      </div>
+                      <label className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={lostReturnFee}
+                          onChange={(e) => setLostReturnFee(e.target.checked)}
+                          className="accent-[#34D186]"
+                        />
+                        <span>Request +{currency}15.00 return trip fee</span>
+                      </label>
+                    </div>
+                  )
+                )}
+
+                {selectedTrip.cleaningFeeClaim ? (
+                  <div className="px-2.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 font-bold">
+                    Cleaning Claim ({currency}
+                    {selectedTrip.cleaningFeeClaim.amount}) · {selectedTrip.cleaningFeeClaim.status.toUpperCase()} — {selectedTrip.cleaningFeeClaim.reason}
+                  </div>
+                ) : (
+                  onSubmitCleaningClaim && (
+                    <div className="space-y-1.5 pt-2 border-t border-slate-200/70 dark:border-slate-700">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-700 dark:text-slate-300">
+                          Cleaning Fee Claim:
+                        </span>
+                        <div className="flex gap-1">
+                          {([40, 80, 120] as const).map((tier) => (
+                            <button
+                              key={tier}
+                              type="button"
+                              onClick={() => setCleaningTier(tier)}
+                              className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${
+                                cleaningTier === tier
+                                  ? 'bg-rose-600 text-white'
+                                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              {currency}
+                              {tier}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={cleaningReason}
+                          onChange={(e) => setCleaningReason(e.target.value)}
+                          placeholder="Reason (e.g. spilled drink on rear seat)"
+                          className="flex-1 h-9 px-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!cleaningReason.trim()) return;
+                            onSubmitCleaningClaim(selectedTrip.id, cleaningTier, cleaningReason.trim());
+                            setCleaningReason('');
+                          }}
+                          className="px-3 h-9 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] shrink-0"
+                        >
+                          Submit Claim
+                        </button>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
 
             {/* Print-Friendly Summary Generator & Sharing Controls */}
             <div className="grid grid-cols-3 gap-2 pt-1">
@@ -1088,7 +1226,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
               <strong>Dropoff:</strong> {selectedTrip.dropoffAddress}
             </div>
             <div>
-              <strong>Distance &amp; Time:</strong> {selectedTrip.distanceKm} km ·{' '}
+              <strong>Distance &amp; Time:</strong> {formatMiles(selectedTrip.distanceKm)} ·{' '}
               {selectedTrip.durationMin} min
               {(selectedTrip.stopsCount || 0) > 0
                 ? ` · ${selectedTrip.stopsCount} intermediate stop(s)`
@@ -1113,7 +1251,7 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                 </td>
               </tr>
               <tr>
-                <td className="py-2">Distance fare ({selectedTrip.distanceKm} km)</td>
+                <td className="py-2">Distance fare ({formatMiles(selectedTrip.distanceKm)})</td>
                 <td className="py-2 text-right font-mono">
                   {currency}
                   {selectedBreakdown.distanceFare.toFixed(2)}
@@ -1141,6 +1279,15 @@ export const EarningsView: React.FC<EarningsViewProps> = ({
                   <td className="py-2 text-right font-mono">
                     +{currency}
                     {selectedBreakdown.waitFee.toFixed(2)}
+                  </td>
+                </tr>
+              )}
+              {selectedBreakdown.tollFee > 0 && (
+                <tr>
+                  <td className="py-2">{selectedTrip.tollLabel || 'Toll / Airport pass-through'}</td>
+                  <td className="py-2 text-right font-mono">
+                    +{currency}
+                    {selectedBreakdown.tollFee.toFixed(2)}
                   </td>
                 </tr>
               )}

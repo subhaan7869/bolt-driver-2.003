@@ -31,6 +31,7 @@ import { getCityById } from '../data/worldMapData';
 import { DriverDocument, DriverProfile, DriverSettings, Vehicle } from '../types/driver';
 import { NotificationPermissionState } from '../utils/notifications';
 import { AppPermissionsSnapshot } from '../utils/permissions';
+import { formatWholeMiles, kmToMi } from '../utils/units';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface AccountViewProps {
@@ -289,7 +290,7 @@ export const AccountView: React.FC<AccountViewProps> = ({
                         : 'Fuel Range Guard'}
                     </div>
                     <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono-num">
-                      {activeVehicle.rangeKm.toFixed(0)} / {activeVehicle.maxRangeKm} km ({rangePct}%)
+                      {Math.round(kmToMi(activeVehicle.rangeKm))} / {Math.round(kmToMi(activeVehicle.maxRangeKm))} mi ({rangePct}%)
                     </div>
                   </div>
                 </div>
@@ -311,7 +312,7 @@ export const AccountView: React.FC<AccountViewProps> = ({
               </div>
               {isLowRange && (
                 <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-                  Range under 95 km — Long-distance Bolt City dispatches paused until topped up.
+                  Range under {Math.round(kmToMi(95))} mi — Long-distance Bolt City dispatches paused until topped up.
                 </div>
               )}
             </div>
@@ -324,7 +325,7 @@ export const AccountView: React.FC<AccountViewProps> = ({
                   Odometer &amp; Maintenance
                 </span>
                 <span className="text-xs font-extrabold font-mono-num text-slate-700 dark:text-slate-200">
-                  {activeVehicle.odometerKm.toLocaleString()} km
+                  {formatWholeMiles(activeVehicle.odometerKm)}
                 </span>
               </div>
 
@@ -338,7 +339,7 @@ export const AccountView: React.FC<AccountViewProps> = ({
                 >
                   <div className="text-slate-500 dark:text-slate-400">Next Service</div>
                   <div className="font-extrabold font-mono-num text-slate-950 dark:text-white mt-0.5">
-                    {kmToService === 0 ? 'Due now!' : `In ${kmToService.toLocaleString()} km`}
+                    {kmToService === 0 ? 'Due now!' : `In ${formatWholeMiles(kmToService)}`}
                   </div>
                   <button
                     type="button"
@@ -359,7 +360,7 @@ export const AccountView: React.FC<AccountViewProps> = ({
                 >
                   <div className="text-slate-500 dark:text-slate-400">Tyre Rotation</div>
                   <div className="font-extrabold font-mono-num text-slate-950 dark:text-white mt-0.5">
-                    {kmToTyres === 0 ? 'Inspect now!' : `In ${kmToTyres.toLocaleString()} km`}
+                    {kmToTyres === 0 ? 'Inspect now!' : `In ${formatWholeMiles(kmToTyres)}`}
                   </div>
                   <button
                     type="button"
@@ -400,7 +401,7 @@ export const AccountView: React.FC<AccountViewProps> = ({
                       {veh.makeModel}
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      {veh.plate} · {veh.year} {veh.fuelType} · {veh.rangeKm.toFixed(0)} km range
+                      {veh.plate} · {veh.year} {veh.fuelType} · {Math.round(kmToMi(veh.rangeKm))} mi range
                     </div>
                   </div>
                   <div

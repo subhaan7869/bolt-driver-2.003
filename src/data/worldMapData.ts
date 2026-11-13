@@ -1,7 +1,9 @@
 import {
   BidJobOffer,
   CampaignQuest,
+  ChargingStation,
   CityPreset,
+  CleanAirZone,
   CompletedTrip,
   DistrictDemandZone,
   DriverDocument,
@@ -11,10 +13,12 @@ import {
   RideCategory,
   RideRequest,
   ScheduledRide,
+  SpeedCamera,
   SurgeZone,
   TaxiRank,
   TripStop,
   Vehicle,
+  WeatherForecast,
 } from '../types/driver';
 
 export const WORLD_CITIES: CityPreset[] = [
@@ -845,6 +849,28 @@ export async function generateLiveRideRequest(params: {
     ? Math.floor(1000 + Math.random() * 9000).toString()
     : undefined;
 
+  const isAirportTrip =
+    Boolean(params.preferredRankArea?.toLowerCase().includes('airport')) ||
+    pickupAddress.toLowerCase().includes('airport') ||
+    pickupAddress.toLowerCase().includes('heathrow') ||
+    dropoffAddress.toLowerCase().includes('airport') ||
+    dropoffAddress.toLowerCase().includes('heathrow');
+
+  const isBridgeOrTunnel =
+    !isAirportTrip &&
+    (dropoffArea === 'Docklands' ||
+      pickupArea === 'Docklands' ||
+      dropoffArea === 'Waterloo' ||
+      isOutOfCity ||
+      Math.random() < 0.22);
+
+  const tollOrAirportFee = isAirportTrip ? 5.0 : isBridgeOrTunnel ? 2.5 : 0;
+  const tollLabel = isAirportTrip
+    ? 'Airport Drop-Off Fee'
+    : isBridgeOrTunnel
+    ? 'River Crossing / Bridge Toll'
+    : undefined;
+
   return {
     id: `req-${Date.now()}-${Math.floor(Math.random() * 999)}`,
     riderName: RIDER_NAMES[Math.floor(Math.random() * RIDER_NAMES.length)],
@@ -863,6 +889,8 @@ export async function generateLiveRideRequest(params: {
     pickupPin,
     waitFeePerMin: 0.45,
     waitFeeTotal: 0,
+    tollOrAirportFee,
+    tollLabel,
     pickupDistanceKm: toPickup.distanceKm,
     pickupEtaMin: toPickup.durationMin,
     tripDistanceKm,
@@ -887,6 +915,200 @@ export async function generateLiveRideRequest(params: {
       : Math.random() > 0.55
       ? 'Waiting near main glass entrance'
       : undefined,
+  };
+}
+
+export function generateCleanAirZonesNear(
+  center: LatLng,
+  cityId: string
+): CleanAirZone[] {
+  const city = getCityById(cityId);
+  const anchor = haversineKm(center, city.center) < 35 ? city.center : center;
+
+  return [
+    {
+      id: `caz-${city.id}-congestion`,
+      name:
+        city.id === 'london'
+          ? 'Central Congestion Zone'
+          : `${city.name} Central Ring`,
+      zoneType: 'Congestion',
+      center: { lat: anchor.lat - 0.002, lng: anchor.lng + 0.006 },
+      radiusMeters: 1650,
+      dailyFee: 15.0,
+      evExempt: false,
+    },
+    {
+      id: `caz-${city.id}-ulez`,
+      name:
+        city.id === 'london'
+          ? 'Ultra Low Emission Zone (ULEZ)'
+          : `${city.name} Clean Air Zone`,
+      zoneType: city.id === 'london' ? 'ULEZ' : 'Clean Air',
+      center: { lat: anchor.lat + 0.006, lng: anchor.lng - 0.01 },
+      radiusMeters: 2600,
+      dailyFee: 12.5,
+      evExempt: true,
+    },
+  ];
+}
+
+export function generateSpeedCamerasNear(
+  center: LatLng,
+  cityId: string
+): SpeedCamera[] {
+  const offsets: { latD: number; lngD: number; limit: number; label: string; type: SpeedCamera['cameraType'] }[] = [
+    { latD: 0.007, lngD: -0.006, limit: 20, label: 'School Corridor Cam', type: 'Fixed' },
+    { latD: -0.005, lngD: 0.008, limit: 30, label: 'High St Speed & Red Light', type: 'Red Light' },
+    { latD: 0.011, lngD: 0.012, limit: 30, label: 'Ring Road East', type: 'Fixed' },
+    { latD: -0.012, lngD: -0.009, limit: 40, label: 'Embankment Average Check', type: 'Average' },
+    { latD: 0.016, lngD: -0.002, limit: 50, label: 'North Arterial Approach', type: 'Average' },
+  ];
+
+  return offsets.map((o, idx) => ({
+    id: `cam-${cityId}-${idx}`,
+    name: o.label,
+    limitMph: o.limit,
+    cameraType: o.type,
+    coords: {
+      lat: Number((center.lat + o.latD).toFixed(6)),
+      lng: Number((center.lng + o.lngD).toFixed(6)),
+    },
+  }));
+}
+
+export function generateChargingStationsNear(
+  center: LatLng,
+  cityId: string
+): ChargingStation[] {
+  const templates = [
+    {
+      name: 'Gridserve Ultra-Rapid Hub',
+      type: 'Ultra-Rapid EV' as const,
+      priceLabel: '£0.62/kWh · 6 bays free',
+      powerKw: 350,
+      latD: 0.009,
+      lngD: 0.011,
+    },
+    {
+      name: 'BP Pulse Express & Forecourt',
+      type: 'Fuel & EV Hub' as const,
+      priceLabel: '150kW EV · £1.44/L Petrol',
+      powerKw: 150,
+      latD: -0.011,
+      lngD: 0.007,
+    },
+    {
+      name: 'Ionity City Superhub',
+      type: 'Ultra-Rapid EV' as const,
+      priceLabel: '£0.59/kWh · Partner rate',
+      powerKw: 300,
+      latD: 0.006,
+      lngD: -0.014,
+    },
+    {
+      name: 'Shell Recharge & Pit-Stop',
+      type: 'Fuel & EV Hub' as const,
+      priceLabel: '175kW EV · Café & Wash',
+      powerKw: 175,
+      latD: -0.008,
+      lngD: -0.012,
+    },
+  ];
+
+  return templates.map((t, i) => {
+    const coords = {
+      lat: Number((center.lat + t.latD).toFixed(6)),
+      lng: Number((center.lng + t.lngD).toFixed(6)),
+    };
+    return {
+      id: `stn-${cityId}-${i}`,
+      name: t.name,
+      type: t.type,
+      priceLabel: t.priceLabel,
+      powerKw: t.powerKw,
+      distanceKm: Number(haversineKm(center, coords).toFixed(2)),
+      coords,
+    };
+  });
+}
+
+function describeWmoWeatherCode(code: number): { label: string; isRaining: boolean } {
+  if (code === 0) return { label: 'Clear Sky', isRaining: false };
+  if (code <= 2) return { label: 'Partly Cloudy', isRaining: false };
+  if (code === 3) return { label: 'Overcast', isRaining: false };
+  if (code >= 45 && code <= 48) return { label: 'Mist / Fog', isRaining: false };
+  if (code >= 51 && code <= 57) return { label: 'Light Drizzle', isRaining: true };
+  if (code >= 61 && code <= 67) return { label: 'Rain', isRaining: true };
+  if (code >= 80 && code <= 82) return { label: 'Rain Showers', isRaining: true };
+  if (code >= 95) return { label: 'Thunderstorm', isRaining: true };
+  return { label: 'Cloudy', isRaining: false };
+}
+
+function getLocalEventDemandNote(): { note?: string; boost: number } {
+  const hour = new Date().getHours();
+  if (hour >= 7 && hour <= 9) {
+    return { note: 'Morning Commuter & Rail Rush', boost: 0.15 };
+  }
+  if (hour >= 17 && hour <= 20) {
+    return { note: 'Evening Peak & Theatre Wave', boost: 0.2 };
+  }
+  if (hour >= 21 || hour <= 1) {
+    return { note: 'Nightlife & Concert Closing', boost: 0.25 };
+  }
+  return { note: undefined, boost: 0 };
+}
+
+export async function fetchLiveWeatherAndEvents(
+  center: LatLng,
+  _cityId: string
+): Promise<WeatherForecast> {
+  const eventInfo = getLocalEventDemandNote();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3500);
+
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${center.lat}&longitude=${center.lng}&current=temperature_2m,precipitation,rain,wind_speed_10m,weather_code`;
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = (await res.json()) as {
+        current?: {
+          temperature_2m?: number;
+          precipitation?: number;
+          rain?: number;
+          wind_speed_10m?: number;
+          weather_code?: number;
+        };
+      };
+      if (data.current) {
+        const wmo = describeWmoWeatherCode(data.current.weather_code ?? 2);
+        const precip = (data.current.rain ?? 0) + (data.current.precipitation ?? 0);
+        const isRaining = wmo.isRaining || precip >= 0.15;
+        const rainBoost = isRaining ? 0.25 : 0;
+        return {
+          tempC: Math.round(data.current.temperature_2m ?? 14),
+          condition: wmo.label,
+          isRaining,
+          windKmh: Math.round(data.current.wind_speed_10m ?? 12),
+          rainSurgeBoost: Number((rainBoost + eventInfo.boost).toFixed(2)),
+          eventSurgeNote: isRaining
+            ? `Rain Surge (+${(rainBoost + eventInfo.boost).toFixed(2)}x)`
+            : eventInfo.note,
+        };
+      }
+    }
+  } catch {
+    clearTimeout(timeout);
+  }
+
+  return {
+    tempC: 14,
+    condition: 'Partly Cloudy',
+    isRaining: false,
+    windKmh: 16,
+    rainSurgeBoost: eventInfo.boost,
+    eventSurgeNote: eventInfo.note,
   };
 }
 

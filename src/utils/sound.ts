@@ -122,3 +122,26 @@ export function playSuccessTone(enabled: boolean): void {
     { freq: 659.25, delay: 0.08, duration: 0.24, type: 'sine', gain: 0.1 },
   ]);
 }
+
+export function playSpeedCameraAlert(enabled: boolean): void {
+  if (!enabled) return;
+  playToneSequence([
+    { freq: 880, delay: 0, duration: 0.1, type: 'square', gain: 0.05 },
+    { freq: 880, delay: 0.16, duration: 0.1, type: 'square', gain: 0.05 },
+  ]);
+}
+
+export function speakNavigationInstruction(text: string, enabled: boolean): void {
+  if (!enabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.05;
+    utterance.pitch = 1.0;
+    utterance.volume = 0.85;
+    utterance.lang = 'en-GB';
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    // Ignore speech synthesis errors on restricted browsers
+  }
+}

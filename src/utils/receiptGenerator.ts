@@ -409,7 +409,7 @@ export function exportTaxSummaryCsv(
 
   lines.push('', 'EXPENSES', 'Expense ID,Day,Date,Category,Note,Amount');
   for (const e of expenses) {
-    lines.push([e.id, e.dayKey, e.dateLabel, e.category, e.note, e.amount.toFixed(2)].map(escCsv).join(','));
+    lines.push([e.id, e.dayKey, e.dateIso, e.category, e.note || '', e.amount.toFixed(2)].map(escCsv).join(','));
   }
 
   const grossNet = trips.reduce((s, t) => s + t.netEarnings, 0);

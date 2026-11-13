@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { RideRequest } from '../types/driver';
+import { formatMiles } from '../utils/units';
 
 interface IncomingRequestModalProps {
   request: RideRequest;
@@ -168,7 +169,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           <div className="relative">
             <span className="absolute -left-6 top-1 w-3.5 h-3.5 rounded-full bg-[#34D186] ring-4 ring-white dark:ring-slate-900" />
             <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
-              {request.pickupEtaMin} min ({request.pickupDistanceKm} km) away
+              {request.pickupEtaMin} min ({formatMiles(request.pickupDistanceKm)}) away
             </div>
             <div className="text-[15px] font-bold text-slate-900 dark:text-white truncate">
               {request.pickupAddress}
@@ -190,7 +191,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           <div className="relative">
             <span className="absolute -left-6 top-1 w-3.5 h-3.5 rounded-[3px] bg-slate-900 dark:bg-white ring-4 ring-white dark:ring-slate-900" />
             <div className="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums">
-              Trip: {request.tripEtaMin} min ({request.tripDistanceKm} km)
+              Trip: {request.tripEtaMin} min ({formatMiles(request.tripDistanceKm)})
             </div>
             <div className="text-[15px] font-semibold text-slate-800 dark:text-slate-200 truncate">
               {request.dropoffAddress}
