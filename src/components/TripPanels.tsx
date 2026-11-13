@@ -3,7 +3,6 @@ import {
   CalendarClock,
   Check,
   CheckCircle2,
-  ChevronUp,
   Clock,
   Coffee,
   Compass,
@@ -134,13 +133,6 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const [completedStopsCount, setCompletedStopsCount] = useState(0);
-  const [showBottomMenu, setShowBottomMenu] = useState(false);
-
-  useEffect(() => {
-    if (status !== 'ONLINE_IDLE') {
-      setShowBottomMenu(false);
-    }
-  }, [status]);
 
   useEffect(() => {
     if (status !== 'ARRIVED_PICKUP') {
@@ -475,146 +467,51 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
           <div className="h-full w-1/3 bg-[#34D186] rounded-full animate-[pulse_1.6s_ease-in-out_infinite]" />
         </div>
 
-        {/* Compact Bottom Pop-Up Menu Trigger Bar */}
-        <button
-          type="button"
-          onClick={() => setShowBottomMenu(true)}
-          aria-expanded={showBottomMenu}
-          className="w-full h-11 px-3.5 rounded-xl sm:rounded-2xl bg-slate-950 dark:bg-slate-800 hover:bg-slate-900 dark:hover:bg-slate-700 active:scale-[0.99] text-white flex items-center justify-between gap-2 transition-all shadow-md"
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-xs font-extrabold tracking-tight whitespace-nowrap">
-              Shift Menu
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-white/10 text-[10px] font-bold text-slate-200 whitespace-nowrap">
-              Auto: {autoAccept ? 'ON' : 'OFF'}
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-[#34D186]/20 text-[10px] font-bold text-[#34D186] whitespace-nowrap">
-              Flex ({openBidJobsCount})
-            </span>
-          </div>
-          <div className="flex items-center gap-1 text-[11px] font-bold text-slate-300 shrink-0">
-            <span className="hidden sm:inline">Break / Offline</span>
-            <ChevronUp className="w-4 h-4 text-[#34D186]" />
-          </div>
-        </button>
-
-        {/* Bottom Pop-Up Menu (Go Offline · Bolt Flex · Take Break · Auto-Accept) */}
-        {showBottomMenu && (
-          <>
-            <div
-              className="fixed inset-0 bg-black/35 backdrop-blur-[1px] z-[425]"
-              onClick={() => setShowBottomMenu(false)}
-              aria-hidden="true"
+        <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+          <button
+            type="button"
+            onClick={onToggleAutoAccept}
+            className={`h-9 sm:h-11 rounded-xl font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 border transition-colors ${
+              autoAccept
+                ? 'bg-[#34D186]/15 border-[#34D186] text-slate-950 dark:text-white'
+                : 'bg-slate-100 dark:bg-slate-800 border-transparent text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            <Zap
+              className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${
+                autoAccept ? 'text-[#25B670] fill-current' : 'text-slate-400'
+              }`}
             />
-            <div
-              role="dialog"
-              aria-label="Shift controls menu"
-              className="fixed left-0 right-0 bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] lg:left-5 lg:right-auto lg:bottom-5 lg:w-[410px] z-[430] bg-white dark:bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 px-4 pt-3 pb-4 space-y-3"
-            >
-              <div className="w-9 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto lg:hidden" />
+            <span>Auto-Accept: {autoAccept ? 'ON' : 'OFF'}</span>
+          </button>
 
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-extrabold text-slate-950 dark:text-white">
-                    Driver Shift Menu
-                  </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Manage dispatch, breaks, Bolt Flex bids, or end shift
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowBottomMenu(false)}
-                  aria-label="Close shift menu"
-                  className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+          <button
+            type="button"
+            onClick={onStartBreak}
+            className="h-9 sm:h-11 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-900/60 text-amber-800 dark:text-amber-300 font-bold text-[11px] sm:text-xs hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <Coffee className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span>Take Break</span>
+          </button>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={onToggleAutoAccept}
-                  className={`h-12 px-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 border transition-colors ${
-                    autoAccept
-                      ? 'bg-[#34D186]/15 border-[#34D186] text-slate-950 dark:text-white'
-                      : 'bg-slate-100 dark:bg-slate-800 border-transparent text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <Zap
-                    className={`w-4 h-4 shrink-0 ${
-                      autoAccept ? 'text-[#25B670] fill-current' : 'text-slate-400'
-                    }`}
-                  />
-                  <span>Auto-Accept: {autoAccept ? 'ON' : 'OFF'}</span>
-                </button>
+          <button
+            type="button"
+            onClick={onOpenBidJobs}
+            className="h-9 sm:h-11 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-colors"
+          >
+            <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#25B670]" />
+            <span>Bolt Flex ({openBidJobsCount})</span>
+          </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBottomMenu(false);
-                    onStartBreak();
-                  }}
-                  className="h-12 px-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-900/60 text-amber-800 dark:text-amber-300 font-bold text-xs hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Coffee className="w-4 h-4 shrink-0" />
-                  <span>Take Break</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBottomMenu(false);
-                    onOpenBidJobs();
-                  }}
-                  className="h-12 px-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold text-xs flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Gavel className="w-4 h-4 shrink-0 text-[#25B670]" />
-                  <span>Bolt Flex ({openBidJobsCount})</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBottomMenu(false);
-                    onGoOffline();
-                  }}
-                  className="h-12 px-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200/70 dark:border-rose-900 font-bold text-xs hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-all flex items-center justify-center gap-2"
-                >
-                  <Power className="w-4 h-4 shrink-0" />
-                  <span>Go Offline</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBottomMenu(false);
-                    onOpenPreferences();
-                  }}
-                  className="h-10 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5"
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Trip Preferences</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBottomMenu(false);
-                    onOpenDestination();
-                  }}
-                  className="h-10 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5"
-                >
-                  <Compass className="w-3.5 h-3.5 text-[#25B670]" />
-                  <span>{destinationLabel ? 'Change Dest.' : 'Destination'}</span>
-                </button>
-              </div>
-            </div>
-          </>
-        )}
+          <button
+            type="button"
+            onClick={onGoOffline}
+            className="h-9 sm:h-11 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200/70 dark:border-rose-900 font-bold text-[11px] sm:text-xs hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Power className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span>Go Offline</span>
+          </button>
+        </div>
       </div>
     );
   }

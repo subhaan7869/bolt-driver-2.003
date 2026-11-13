@@ -381,14 +381,7 @@ export default function App() {
   const [isRerouting, setIsRerouting] = useState<boolean>(false);
   const lastRerouteAtRef = useRef<number>(0);
   const routeProgressRef = useRef<{ index: number; progress: number }>({ index: 0, progress: 0 });
-  const currentManeuverIndexRef = useRef<number>(0);
-  const smoothHeadingRef = useRef<number>(45);
-  const smoothSpeedRef = useRef<number>(38);
-  const soundAlertsRef = useRef<boolean>(true);
   const gpsWatchIdRef = useRef<number | null>(null);
-  const [isMicListening, setIsMicListening] = useState<boolean>(false);
-  const [micTranscript, setMicTranscript] = useState<string | null>(null);
-  const voiceRecRef = useRef<{ stop: () => void } | null>(null);
 
   // Bid Marketplace (Bolt Flex) & Scheduled Rides Queue
   const [bidJobs, setBidJobs] = useState<BidJobOffer[]>(() =>
@@ -1059,34 +1052,6 @@ export default function App() {
           activeRequest &&
           activeRoute.length > 1
         ) {
-          // Track closest vertex along route for live GPS maneuver countdown & route trimming
-          let bestIdx = routeProgressRef.current.index;
-          let bestDist = Infinity;
-          for (let i = 0; i < activeRoute.length; i++) {
-            const d = exactDistanceKm(coords, activeRoute[i]);
-            if (d < bestDist) {
-              bestDist = d;
-              bestIdx = i;
-            }
-          }
-          if (bestIdx !== routeProgressRef.current.index) {
-            routeProgressRef.current = { index: bestIdx, progress: 0 };
-            setCurrentRouteIndex(bestIdx);
-            let matchedManIdx = currentManeuverIndexRef.current;
-            for (let m = matchedManIdx + 1; m < activeManeuvers.length; m++) {
-              if (bestIdx >= activeManeuvers[m].pointIndex) {
-                matchedManIdx = m;
-              } else {
-                break;
-              }
-            }
-            if (matchedManIdx > currentManeuverIndexRef.current) {
-              currentManeuverIndexRef.current = matchedManIdx;
-              setCurrentManeuverIndex(matchedManIdx);
-              playNavigationTurnPing(soundAlertsRef.current);
-            }
-          }
-
           const offRouteMeters = minDistanceToRouteMeters(coords, activeRoute);
           const now = Date.now();
           if (offRouteMeters > 85 && now - lastRerouteAtRef.current > 10000) {
@@ -1106,7 +1071,6 @@ export default function App() {
                 setActiveRoute(rerouted.points);
                 setActiveManeuvers(rerouted.maneuvers);
                 setCurrentRouteIndex(0);
-                currentManeuverIndexRef.current = 0;
                 setCurrentManeuverIndex(0);
                 routeProgressRef.current = { index: 0, progress: 0 };
                 setIsRerouting(false);
@@ -1121,7 +1085,7 @@ export default function App() {
     );
 
     return () => stopLiveGpsWatch();
-  }, [isLiveGps, status, activeRequest, activeRoute, activeManeuvers, stopLiveGpsWatch, addToast]);
+  }, [isLiveGps, status, activeRequest, activeRoute, stopLiveGpsWatch, addToast]);
 
   const handleSelectCity = useCallback(
     (cityId: string) => {
@@ -1281,15 +1245,9 @@ export default function App() {
       setActiveRoute(finalReq.toPickupRoute);
       setPreviewDropoffRoute([]);
       setActiveManeuvers(finalReq.maneuversToPickup);
-      currentManeuverIndexRef.current = 0;
       setCurrentManeuverIndex(0);
       setCurrentRouteIndex(0);
       routeProgressRef.current = { index: 0, progress: 0 };
-      if (finalReq.toPickupRoute.length > 1) {
-        const initHeading = calculateBearing(finalReq.toPickupRoute[0], finalReq.toPickupRoute[1]);
-        smoothHeadingRef.current = initHeading;
-        setDriverHeading(initHeading);
-      }
       setChatMessages([]);
       setUnreadChatCount(0);
       setAwaitingRiderReply(false);
@@ -1361,60 +1319,22 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
   }, [status, handleAcceptRequest, handleDeclineRequest]);
 
-  useEffect(() => {
-    soundAlertsRef.current = settings.soundAlerts;
-  }, [settings.soundAlerts]);
-
-  // Silky 60fps delta-time simulated navigation with look-ahead cornering & turn-aware speed easing
+  // Continuous turn-by-turn simulated navigation when NOT in Live Phone GPS mode
   useEffect(() => {
     if (isLiveGps) return;
     if (status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS') return;
     if (activeRoute.length < 2) return;
 
-    let rafId = 0;
-    let lastTime = performance.now();
-    let lastSpeedInt = Math.round(smoothSpeedRef.current);
-    let lastRouteIdx = routeProgressRef.current.index;
-
-    // Helper: sample a look-ahead point ~N meters down the polyline for smooth curve anticipation
-    const getLookAheadPoint = (startIdx: number, startPos: LatLng, lookAheadKm: number): LatLng => {
-      let remaining = lookAheadKm;
-      let prev = startPos;
-      for (let i = startIdx + 1; i < activeRoute.length; i++) {
-        const next = activeRoute[i];
-        const seg = exactDistanceKm(prev, next);
-        if (seg >= remaining && seg > 0.0001) {
-          return interpolateLatLng(prev, next, remaining / seg);
-        }
-        remaining -= seg;
-        prev = next;
-      }
-      return activeRoute[activeRoute.length - 1];
-    };
-
-    const step = (now: number) => {
-      const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
-      lastTime = now;
-
+    const tickMs = 80;
+    const interval = setInterval(() => {
       let { index, progress } = routeProgressRef.current;
       if (index >= activeRoute.length - 1) return;
 
       const currPt = activeRoute[index];
       const nextPt = activeRoute[index + 1];
       const segKm = exactDistanceKm(currPt, nextPt);
-      const interpolatedPos =
-        segKm < 0.0005 ? currPt : interpolateLatLng(currPt, nextPt, Math.min(1, Math.max(0, progress)));
-
-      // Measure upcoming corner sharpness 38m ahead to gently ease speed into turns
-      const nearLookAhead = getLookAheadPoint(index, interpolatedPos, 0.038);
-      const immediateBearing = segKm > 0.0002 ? calculateBearing(currPt, nextPt) : smoothHeadingRef.current;
-      const aheadBearing = calculateBearing(interpolatedPos, nearLookAhead);
-      const turnSharpnessDeg = Math.abs(((aheadBearing - immediateBearing + 540) % 360) - 180);
-
-      const baseTargetKmh = turnSharpnessDeg > 42 ? 26 : turnSharpnessDeg > 18 ? 36 : segKm > 0.055 ? 50 : 42;
-      smoothSpeedRef.current += (baseTargetKmh - smoothSpeedRef.current) * (1 - Math.exp(-3.4 * dt));
-
-      const travelKm = ((smoothSpeedRef.current / 3600) * dt) * 2.25;
+      const targetKmh = segKm > 0.06 ? 48 : 34;
+      const travelKm = ((targetKmh / 3600) * (tickMs / 1000)) * 2.2;
 
       if (segKm < 0.0005) {
         index += 1;
@@ -1435,61 +1355,41 @@ export default function App() {
       }
 
       routeProgressRef.current = { index, progress };
-
-      if (index !== lastRouteIdx) {
-        lastRouteIdx = index;
-        setCurrentRouteIndex(index);
-      }
-
-      const roundedSpeed = Math.round(smoothSpeedRef.current);
-      if (roundedSpeed !== lastSpeedInt) {
-        lastSpeedInt = roundedSpeed;
-        setNavSpeedKmh(roundedSpeed);
-      }
+      setCurrentRouteIndex(index);
+      setNavSpeedKmh(Math.round(targetKmh + Math.sin(index * 0.7) * 3));
 
       if (index >= activeRoute.length - 1) {
         setDriverPos(activeRoute[activeRoute.length - 1]);
-        return;
+      } else {
+        const a = activeRoute[index];
+        const b = activeRoute[index + 1];
+        setDriverHeading(calculateBearing(a, b));
+        setDriverPos(interpolateLatLng(a, b, progress));
       }
 
-      const a = activeRoute[index];
-      const b = activeRoute[index + 1];
-      const nextPos = interpolateLatLng(a, b, progress);
-      const curveTargetPt = getLookAheadPoint(index, nextPos, 0.028);
-      const targetBearing =
-        exactDistanceKm(nextPos, curveTargetPt) > 0.001
-          ? calculateBearing(nextPos, curveTargetPt)
-          : calculateBearing(a, b);
-
-      // Exponential shortest-angle damping eliminates jerky snaps on vertices
-      const shortestDelta = ((targetBearing - smoothHeadingRef.current + 540) % 360) - 180;
-      const turnAlpha = 1 - Math.exp(-9.0 * dt);
-      const nextHeading = (smoothHeadingRef.current + shortestDelta * turnAlpha + 360) % 360;
-      smoothHeadingRef.current = nextHeading;
-
-      setDriverPos(nextPos);
-      setDriverHeading(nextHeading);
-
-      let matchedManIdx = currentManeuverIndexRef.current;
-      for (let m = matchedManIdx + 1; m < activeManeuvers.length; m++) {
+      let matchedManIdx = currentManeuverIndex;
+      for (let m = currentManeuverIndex + 1; m < activeManeuvers.length; m++) {
         if (index >= activeManeuvers[m].pointIndex) {
           matchedManIdx = m;
         } else {
           break;
         }
       }
-      if (matchedManIdx > currentManeuverIndexRef.current) {
-        currentManeuverIndexRef.current = matchedManIdx;
+      if (matchedManIdx > currentManeuverIndex) {
         setCurrentManeuverIndex(matchedManIdx);
-        playNavigationTurnPing(soundAlertsRef.current);
+        playNavigationTurnPing(settings.soundAlerts);
       }
+    }, tickMs);
 
-      rafId = requestAnimationFrame(step);
-    };
-
-    rafId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafId);
-  }, [isLiveGps, status, activeRoute, activeManeuvers]);
+    return () => clearInterval(interval);
+  }, [
+    isLiveGps,
+    status,
+    activeRoute,
+    activeManeuvers,
+    currentManeuverIndex,
+    settings.soundAlerts,
+  ]);
 
   // Smart Back-to-Back Queued Ride Offer when ~1–2 min from current dropoff
   useEffect(() => {
@@ -1578,15 +1478,9 @@ export default function App() {
       setActiveRequest(updatedReq);
       setActiveRoute(updatedReq.toDropoffRoute);
       setActiveManeuvers(updatedReq.maneuversToDropoff);
-      currentManeuverIndexRef.current = 0;
       setCurrentManeuverIndex(0);
       setCurrentRouteIndex(0);
       routeProgressRef.current = { index: 0, progress: 0 };
-      if (updatedReq.toDropoffRoute.length > 1) {
-        const initHeading = calculateBearing(updatedReq.toDropoffRoute[0], updatedReq.toDropoffRoute[1]);
-        smoothHeadingRef.current = initHeading;
-        setDriverHeading(initHeading);
-      }
       setAwaitingRiderReply(false);
       setRiderNoResponseSec(0);
       setStatus('IN_PROGRESS');
@@ -1633,143 +1527,6 @@ export default function App() {
     setStatus('TRIP_COMPLETED');
     playSuccessTone(settings.soundAlerts);
   }, [activeRequest, settings.soundAlerts, addToast]);
-
-  const handleToggleMic = useCallback(async () => {
-    if (isMicListening) {
-      voiceRecRef.current?.stop();
-      setIsMicListening(false);
-      setMicTranscript(null);
-      return;
-    }
-
-    const executeVoicePhrase = (phrase: string) => {
-      const lower = phrase.toLowerCase();
-      setMicTranscript(phrase);
-      setTimeout(() => setMicTranscript(null), 2600);
-
-      if (lower.includes('online') || lower.includes('start shift')) {
-        if (status === 'OFFLINE') handleGoOnline();
-        else if (status === 'ON_BREAK') handleResumeFromBreak();
-      } else if (lower.includes('offline') || lower.includes('end shift')) {
-        if (status === 'ONLINE_IDLE' || status === 'ON_BREAK') endShift();
-      } else if (lower.includes('break') || lower.includes('pause')) {
-        if (status === 'ONLINE_IDLE') handleStartBreak();
-      } else if (lower.includes('accept') || lower.includes('take')) {
-        if (status === 'INCOMING_REQUEST') handleAcceptRequest();
-      } else if (lower.includes('decline') || lower.includes('reject')) {
-        if (status === 'INCOMING_REQUEST') handleDeclineRequest();
-      } else if (lower.includes('arrived')) {
-        if (status === 'EN_ROUTE_PICKUP') handleArrivePickup();
-      } else if (lower.includes('start') && status === 'ARRIVED_PICKUP' && !activeRequest?.requiresPin) {
-        handleStartTrip(0, false);
-      } else if (lower.includes('complete') || lower.includes('finish')) {
-        if (status === 'IN_PROGRESS') handleCompleteTrip();
-      } else if (lower.includes('heatmap')) {
-        setSettings((s) => ({ ...s, showHeatmap: !s.showHeatmap }));
-      } else if (lower.includes('safety') || lower.includes('sos') || lower.includes('emergency')) {
-        setShowSafetyModal(true);
-      } else if (lower.includes('gps')) {
-        handleToggleLiveGps();
-      } else {
-        addToast('Voice Note Captured', `“${phrase}”`, 'info');
-      }
-    };
-
-    const SpeechRec =
-      (window as unknown as {
-        SpeechRecognition?: new () => {
-          lang: string;
-          interimResults: boolean;
-          maxAlternatives: number;
-          onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-          onerror: (() => void) | null;
-          onend: (() => void) | null;
-          start: () => void;
-          stop: () => void;
-        };
-        webkitSpeechRecognition?: new () => {
-          lang: string;
-          interimResults: boolean;
-          maxAlternatives: number;
-          onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-          onerror: (() => void) | null;
-          onend: (() => void) | null;
-          start: () => void;
-          stop: () => void;
-        };
-      }).SpeechRecognition ||
-      (window as unknown as {
-        webkitSpeechRecognition?: new () => {
-          lang: string;
-          interimResults: boolean;
-          maxAlternatives: number;
-          onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-          onerror: (() => void) | null;
-          onend: (() => void) | null;
-          start: () => void;
-          stop: () => void;
-        };
-      }).webkitSpeechRecognition;
-
-    if (SpeechRec) {
-      try {
-        const rec = new SpeechRec();
-        rec.lang = 'en-GB';
-        rec.interimResults = false;
-        rec.maxAlternatives = 1;
-        rec.onresult = (event) => {
-          const spoken = event.results?.[0]?.[0]?.transcript?.trim();
-          if (spoken) executeVoicePhrase(spoken);
-        };
-        rec.onerror = () => setIsMicListening(false);
-        rec.onend = () => setIsMicListening(false);
-        voiceRecRef.current = rec;
-        setIsMicListening(true);
-        setMicTranscript(null);
-        rec.start();
-        return;
-      } catch {
-        setIsMicListening(false);
-      }
-    }
-
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        setIsMicListening(true);
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setMicTranscript('Recording voice memo...');
-        setTimeout(() => {
-          stream.getTracks().forEach((t) => t.stop());
-          setIsMicListening(false);
-          setMicTranscript(null);
-          addToast('Voice Clip Saved', '2s driver mic check / voice note ready.', 'success');
-        }, 2000);
-        return;
-      } catch {
-        setIsMicListening(false);
-        setMicTranscript(null);
-        addToast('Microphone Blocked', 'Allow microphone access in site settings to use voice controls.', 'alert');
-        return;
-      }
-    }
-
-    addToast('Microphone Unavailable', 'Voice controls require a browser with audio mic access.', 'info');
-  }, [
-    isMicListening,
-    status,
-    activeRequest,
-    handleGoOnline,
-    handleResumeFromBreak,
-    endShift,
-    handleStartBreak,
-    handleAcceptRequest,
-    handleDeclineRequest,
-    handleArrivePickup,
-    handleStartTrip,
-    handleCompleteTrip,
-    handleToggleLiveGps,
-    addToast,
-  ]);
 
   const handleSubmitRating = (rating: number, tipBonus: number) => {
     if (!activeRequest) return;
@@ -2268,10 +2025,6 @@ export default function App() {
       dayKey: todayKey,
       distanceKm: activeRequest.pickupDistanceKm,
       durationMin: 2,
-      baseFare: fee,
-      distanceFare: 0,
-      timeFare: 0,
-      waitFee: 0,
       grossFare: fee,
       boltCommission: 0,
       surgeBonus: 0,
@@ -2773,12 +2526,9 @@ export default function App() {
               isLiveGps={isLiveGps}
               gpsLoading={gpsLoading}
               isRerouting={isRerouting}
-              isMicListening={isMicListening}
-              micTranscript={micTranscript}
               currentCityId={currentCityId}
               destinationTarget={settings.destinationFilter.targetCoords}
               onToggleLiveGps={handleToggleLiveGps}
-              onToggleMic={handleToggleMic}
               onToggleHeatmap={() =>
                 setSettings((s) => {
                   const next = !s.showHeatmap;

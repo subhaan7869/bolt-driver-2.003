@@ -10,8 +10,6 @@ import {
   Gauge,
   Globe,
   LocateFixed,
-  Mic,
-  MicOff,
   Minus,
   Navigation,
   Plus,
@@ -59,14 +57,11 @@ interface WorldDriverMapProps {
   isLiveGps: boolean;
   gpsLoading: boolean;
   isRerouting?: boolean;
-  isMicListening?: boolean;
-  micTranscript?: string | null;
   currentCityId: string;
   destinationTarget: LatLng | null;
   onToggleLiveGps: () => void;
   onToggleHeatmap: () => void;
   onToggleHeadingUp: () => void;
-  onToggleMic?: () => void;
   onRefuelOrCharge: () => void;
   onSelectCity: (cityId: string) => void;
   onToggleSound: () => void;
@@ -101,14 +96,11 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   isLiveGps,
   gpsLoading,
   isRerouting,
-  isMicListening = false,
-  micTranscript = null,
   currentCityId,
   destinationTarget,
   onToggleLiveGps,
   onToggleHeatmap,
   onToggleHeadingUp,
-  onToggleMic,
   onRefuelOrCharge,
   onSelectCity,
   onToggleSound,
@@ -122,18 +114,9 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const driverMarkerRef = useRef<L.Marker | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
-  const liveRouteLayerRef = useRef<L.LayerGroup | null>(null);
-  const traveledLineRef = useRef<L.Polyline | null>(null);
-  const aheadHaloLineRef = useRef<L.Polyline | null>(null);
-  const aheadLineRef = useRef<L.Polyline | null>(null);
   const surgeLayerRef = useRef<L.LayerGroup | null>(null);
   const fittedRequestIdRef = useRef<string | null>(null);
   const prevNavPhaseRef = useRef<DriverStatus>('OFFLINE');
-  const driverPosRef = useRef<LatLng>(driverPos);
-  const unwrappedPuckHeadingRef = useRef<number>(driverHeading);
-  const unwrappedMapHeadingRef = useRef<number>(driverHeading);
-  const smoothCameraOffsetRef = useRef<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
-  const zoomLockUntilRef = useRef<number>(0);
 
   const [followDriver, setFollowDriver] = useState(true);
   const [showCityPicker, setShowCityPicker] = useState(false);
@@ -167,7 +150,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       attributionControl: false,
     });
 
-    const liveRouteGroup = L.layerGroup().addTo(map);
     const layerGroup = L.layerGroup().addTo(map);
     const surgeGroup = L.layerGroup().addTo(map);
 
@@ -177,7 +159,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
 
     mapRef.current = map;
     setMapInstance(map);
-    liveRouteLayerRef.current = liveRouteGroup;
     routeLayerRef.current = layerGroup;
     surgeLayerRef.current = surgeGroup;
 
@@ -260,12 +241,10 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       prevNavPhaseRef.current !== status
     ) {
       setFollowDriver(true);
-      zoomLockUntilRef.current = Date.now() + 420;
-      map.setView([driverPosRef.current.lat, driverPosRef.current.lng], 17, { animate: true });
+      map.setView([driverPos.lat, driverPos.lng], 17, { animate: true });
     } else if (status === 'ONLINE_IDLE' && prevNavPhaseRef.current !== 'ONLINE_IDLE') {
       setFollowDriver(true);
-      zoomLockUntilRef.current = Date.now() + 420;
-      map.setView([driverPosRef.current.lat, driverPosRef.current.lng], 15, { animate: true });
+      map.setView([driverPos.lat, driverPos.lng], 15, { animate: true });
     }
 
     if (status !== 'INCOMING_REQUEST') {
@@ -273,9 +252,9 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     }
 
     prevNavPhaseRef.current = status;
-  }, [status]);
+  }, [status, driverPos.lat, driverPos.lng]);
 
-  // Create/update Driver Puck icon ONLY when mode/status changes (zero per-frame DOM thrash)
+  // Update Driver Navigation Puck & Camera Follow
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -291,19 +270,19 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       ? `<div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:28px;height:26px;background:linear-gradient(to top, rgba(52,209,134,0.45), rgba(52,209,134,0));clip-path:polygon(15% 0%, 85% 0%, 60% 100%, 40% 100%);pointer-events:none;"></div>`
       : '';
 
+    // When Heading-Up rotation rotates the map canvas by -driverHeading, keep puck arrow facing upward relative to screen!
+    const puckRotate = headingUpNav && isNavigating ? driverHeading : driverHeading;
     const puckSize = isNavigating ? 42 : 36;
-    const diskSize = isNavigating ? 34 : 30;
-    const svgSize = isNavigating ? 18 : 16;
-    const rotTransition = isLiveGps ? 'transition:transform 650ms linear;' : '';
-
     const puckHtml = `
       <div style="position:relative;width:${puckSize}px;height:${puckSize}px;display:flex;align-items:center;justify-content:center;">
         ${pulseHtml}
-        <div data-bolt-puck-rot="1" style="position:relative;width:${diskSize}px;height:${diskSize}px;border-radius:9999px;background:#0F172A;border:3px solid #FFFFFF;box-shadow:0 6px 16px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;will-change:transform;transform:rotate(${unwrappedPuckHeadingRef.current}deg);${rotTransition}">
+        <div style="position:relative;width:${isNavigating ? 34 : 30}px;height:${
+      isNavigating ? 34 : 30
+    }px;border-radius:9999px;background:#0F172A;border:3px solid #FFFFFF;box-shadow:0 6px 16px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;transform:rotate(${puckRotate}deg);transition:transform 90ms linear;">
           ${beamHtml}
-          <svg width="${svgSize}" height="${svgSize}" viewBox="0 0 24 24" fill="${
-      isBreak ? '#F59E0B' : isOnline ? '#34D186' : '#94A3B8'
-    }">
+          <svg width="${isNavigating ? 18 : 16}" height="${
+      isNavigating ? 18 : 16
+    }" viewBox="0 0 24 24" fill="${isBreak ? '#F59E0B' : isOnline ? '#34D186' : '#94A3B8'}">
             <polygon points="12,2 20,20 12,15 4,20" />
           </svg>
         </div>
@@ -318,70 +297,29 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     });
 
     if (!driverMarkerRef.current) {
-      driverMarkerRef.current = L.marker([driverPosRef.current.lat, driverPosRef.current.lng], {
+      driverMarkerRef.current = L.marker([driverPos.lat, driverPos.lng], {
         icon,
         zIndexOffset: 1000,
       }).addTo(map);
     } else {
+      driverMarkerRef.current.setLatLng([driverPos.lat, driverPos.lng]);
       driverMarkerRef.current.setIcon(icon);
     }
-  }, [status, isNavigating, isLiveGps]);
 
-  // Smooth per-frame Driver Puck movement + unwrapped rotation + non-fighting Camera Follow
-  useEffect(() => {
-    driverPosRef.current = driverPos;
-    const map = mapRef.current;
-    if (!map) return;
-
-    // Unwrap heading continuously so crossing North (359° -> 1°) never spins 358° backwards
-    const delta = ((driverHeading - unwrappedPuckHeadingRef.current + 540) % 360) - 180;
-    unwrappedPuckHeadingRef.current += delta;
-
-    if (driverMarkerRef.current) {
-      driverMarkerRef.current.setLatLng([driverPos.lat, driverPos.lng]);
-      const el = driverMarkerRef.current.getElement();
-      const rotEl = el?.querySelector('[data-bolt-puck-rot]') as HTMLElement | null;
-      if (rotEl) {
-        rotEl.style.transform = `rotate(${unwrappedPuckHeadingRef.current}deg)`;
-      }
-    }
-
-    if (followDriver && Date.now() >= zoomLockUntilRef.current) {
+    if (followDriver) {
       if (isNavigating && !headingUpNav) {
         const rad = (driverHeading * Math.PI) / 180;
-        const lookAheadDeg = 0.00068;
+        const lookAheadDeg = 0.00075;
         const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
-        const sheetOffsetLat = isMobile ? -0.0005 : 0;
-        const rawOffsetLat = Math.cos(rad) * lookAheadDeg + sheetOffsetLat;
-        const rawOffsetLng = Math.sin(rad) * lookAheadDeg;
-
-        // Smooth camera look-ahead offset so turning around corners never yanks the viewport
-        const blend = isLiveGps ? 0.5 : 0.14;
-        smoothCameraOffsetRef.current = {
-          lat: smoothCameraOffsetRef.current.lat + (rawOffsetLat - smoothCameraOffsetRef.current.lat) * blend,
-          lng: smoothCameraOffsetRef.current.lng + (rawOffsetLng - smoothCameraOffsetRef.current.lng) * blend,
-        };
-
-        const targetLat = driverPos.lat + smoothCameraOffsetRef.current.lat;
-        const targetLng = driverPos.lng + smoothCameraOffsetRef.current.lng;
-
-        if (!isLiveGps) {
-          // Instant frame-locked pan matches 60fps rAF with zero animation cancellation stutter
-          map.panTo([targetLat, targetLng], { animate: false });
-        } else {
-          map.panTo([targetLat, targetLng], { animate: true, duration: 0.85, easeLinearity: 1 });
-        }
-      } else if (isNavigating) {
-        if (!isLiveGps) {
-          map.panTo([driverPos.lat, driverPos.lng], { animate: false });
-        } else {
-          map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.85, easeLinearity: 1 });
-        }
+        const sheetOffsetLat = isMobile ? -0.00055 : 0;
+        const targetLat = driverPos.lat + Math.cos(rad) * lookAheadDeg + sheetOffsetLat;
+        const targetLng = driverPos.lng + Math.sin(rad) * lookAheadDeg;
+        map.panTo([targetLat, targetLng], { animate: true, duration: 0.2 });
       } else {
-        map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.25, easeLinearity: 0.9 });
+        map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.25 });
       }
     }
-  }, [driverPos.lat, driverPos.lng, driverHeading, followDriver, isNavigating, headingUpNav, isLiveGps]);
+  }, [driverPos.lat, driverPos.lng, driverHeading, status, followDriver, isNavigating, headingUpNav]);
 
   // Render Surge Zones & Geofenced Airport/Stadium Taxi Ranks
   useEffect(() => {
@@ -422,7 +360,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
 
     ranks.forEach((rank) => {
       const joined = activeRankId === rank.id;
-      const distM = exactDistanceKm(driverPosRef.current, rank.center) * 1000;
+      const distM = exactDistanceKm(driverPos, rank.center) * 1000;
       const insideGeofence = distM <= rank.geofenceRadiusMeters;
       const hubColor =
         rank.hubType === 'airport' ? '#38BDF8' : rank.hubType === 'stadium' ? '#A855F7' : '#25B670';
@@ -465,9 +403,9 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         .on('click', () => onSelectRank?.(rank))
         .addTo(group);
     });
-  }, [surgeZones, ranks, activeRankId, rankQueuePos, status, onSelectSurgeZone, onSelectRank]);
+  }, [surgeZones, ranks, activeRankId, rankQueuePos, status, driverPos.lat, driverPos.lng, onSelectSurgeZone, onSelectRank]);
 
-  // Render Static Route Pins, Preview Dropoff & Fit Bounds ONLY when trip/route structure changes
+  // Render Route Polylines, Multistop Pins, Destination & Full-Trip Zoom Out
   useEffect(() => {
     const group = routeLayerRef.current;
     const map = mapRef.current;
@@ -497,6 +435,57 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
           opacity: 0.88,
         }
       ).addTo(group);
+    }
+
+    if (
+      (status === 'INCOMING_REQUEST' ||
+        status === 'EN_ROUTE_PICKUP' ||
+        status === 'ARRIVED_PICKUP' ||
+        status === 'IN_PROGRESS') &&
+      activeRoute.length > 1
+    ) {
+      if (isNavigating && currentRouteIndex > 0) {
+        const traveled = activeRoute.slice(0, Math.min(activeRoute.length, currentRouteIndex + 1));
+        if (traveled.length > 1) {
+          L.polyline(
+            traveled.map((p) => [p.lat, p.lng] as [number, number]),
+            {
+              color: '#64748B',
+              weight: 5,
+              opacity: 0.35,
+            }
+          ).addTo(group);
+        }
+        const ahead = [
+          driverPos,
+          ...activeRoute.slice(Math.min(activeRoute.length - 1, currentRouteIndex + 1)),
+        ];
+        if (ahead.length > 1) {
+          const aheadLatLngs = ahead.map((p) => [p.lat, p.lng] as [number, number]);
+          L.polyline(aheadLatLngs, {
+            color: '#0F172A',
+            weight: 9,
+            opacity: 0.42,
+          }).addTo(group);
+          L.polyline(aheadLatLngs, {
+            color: '#34D186',
+            weight: 5.5,
+            opacity: 0.98,
+          }).addTo(group);
+        }
+      } else {
+        const latlngs = activeRoute.map((p) => [p.lat, p.lng] as [number, number]);
+        L.polyline(latlngs, {
+          color: '#0F172A',
+          weight: 8,
+          opacity: 0.35,
+        }).addTo(group);
+        L.polyline(latlngs, {
+          color: '#34D186',
+          weight: 5,
+          opacity: 0.96,
+        }).addTo(group);
+      }
     }
 
     if (
@@ -575,7 +564,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     if (status === 'INCOMING_REQUEST' && activeRequest && fittedRequestIdRef.current !== activeRequest.id) {
       fittedRequestIdRef.current = activeRequest.id;
       const allPoints: LatLng[] = [
-        driverPosRef.current,
+        driverPos,
         activeRequest.pickupCoords,
         ...(activeRequest.stops?.map((s) => s.coords) || []),
         activeRequest.dropoffCoords,
@@ -593,79 +582,21 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       });
       setFollowDriver(false);
     }
-  }, [status, activeRequest, activeRoute, previewDropoffRoute, destinationTarget, darkMode]);
-
-  // Update persistent Active Route Polylines in-place via setLatLngs (zero flicker)
-  useEffect(() => {
-    const liveGroup = liveRouteLayerRef.current;
-    if (!liveGroup) return;
-
-    const showActive =
-      (status === 'INCOMING_REQUEST' ||
-        status === 'EN_ROUTE_PICKUP' ||
-        status === 'ARRIVED_PICKUP' ||
-        status === 'IN_PROGRESS') &&
-      activeRoute.length > 1;
-
-    if (!showActive) {
-      if (traveledLineRef.current || aheadHaloLineRef.current || aheadLineRef.current) {
-        liveGroup.clearLayers();
-        traveledLineRef.current = null;
-        aheadHaloLineRef.current = null;
-        aheadLineRef.current = null;
-      }
-      return;
-    }
-
-    if (!traveledLineRef.current) {
-      traveledLineRef.current = L.polyline([], {
-        color: '#64748B',
-        weight: 5,
-        opacity: 0.35,
-      }).addTo(liveGroup);
-    }
-    if (!aheadHaloLineRef.current) {
-      aheadHaloLineRef.current = L.polyline([], {
-        color: '#0F172A',
-        weight: 9,
-        opacity: 0.42,
-      }).addTo(liveGroup);
-    }
-    if (!aheadLineRef.current) {
-      aheadLineRef.current = L.polyline([], {
-        color: '#34D186',
-        weight: 5.5,
-        opacity: 0.98,
-      }).addTo(liveGroup);
-    }
-
-    if (isNavigating && currentRouteIndex >= 0) {
-      const traveledPts =
-        currentRouteIndex > 0
-          ? [...activeRoute.slice(0, Math.min(activeRoute.length, currentRouteIndex + 1)), driverPos]
-          : [];
-      const aheadPts = [
-        driverPos,
-        ...activeRoute.slice(Math.min(activeRoute.length - 1, currentRouteIndex + 1)),
-      ];
-
-      traveledLineRef.current.setLatLngs(
-        traveledPts.map((p) => [p.lat, p.lng] as [number, number])
-      );
-      const aheadLatLngs = aheadPts.map((p) => [p.lat, p.lng] as [number, number]);
-      aheadHaloLineRef.current.setLatLngs(aheadLatLngs);
-      aheadLineRef.current.setLatLngs(aheadLatLngs);
-    } else {
-      const fullLatLngs = activeRoute.map((p) => [p.lat, p.lng] as [number, number]);
-      traveledLineRef.current.setLatLngs([]);
-      aheadHaloLineRef.current.setLatLngs(fullLatLngs);
-      aheadLineRef.current.setLatLngs(fullLatLngs);
-    }
-  }, [status, activeRoute, currentRouteIndex, driverPos.lat, driverPos.lng, isNavigating]);
+  }, [
+    status,
+    activeRequest,
+    activeRoute,
+    previewDropoffRoute,
+    currentRouteIndex,
+    destinationTarget,
+    darkMode,
+    isNavigating,
+    driverPos.lat,
+    driverPos.lng,
+  ]);
 
   const handleRecenter = () => {
     setFollowDriver(true);
-    zoomLockUntilRef.current = Date.now() + 420;
     mapRef.current?.setView([driverPos.lat, driverPos.lng], isNavigating ? 17 : 15, {
       animate: true,
     });
@@ -713,21 +644,15 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     return <Navigation className={`${sizeClass} stroke-[2.5]`} />;
   };
 
-  // Continuous unwrapped Heading-Up angle so crossing North (359° -> 1°) rotates smoothly
-  const mapHeadingDelta = ((driverHeading - unwrappedMapHeadingRef.current + 540) % 360) - 180;
-  unwrappedMapHeadingRef.current += mapHeadingDelta;
-
-  const mapRotationStyle: React.CSSProperties =
+  const mapRotationStyle: React.CSSProperties | undefined =
     headingUpNav && isNavigating && followDriver
       ? {
-          transform: `rotate(${-unwrappedMapHeadingRef.current}deg) scale(1.42)`,
-          transition: isLiveGps ? 'transform 850ms linear' : 'none',
-          willChange: 'transform',
+          transform: `rotate(${-driverHeading}deg) scale(1.42)`,
+          transition: 'transform 220ms linear',
         }
       : {
           transform: 'rotate(0deg) scale(1)',
-          transition: 'transform 260ms ease-out',
-          willChange: 'transform',
+          transition: 'transform 220ms ease-out',
         };
 
   return (
@@ -869,26 +794,12 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         </button>
       )}
 
-      {/* Live Voice / Mic Listening Indicator Banner */}
-      {(isMicListening || micTranscript) && (
-        <div className="absolute left-3 right-14 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 bottom-[calc(14.75rem+env(safe-area-inset-bottom,0px))] lg:bottom-8 z-[415] flex justify-start sm:justify-center pointer-events-none">
-          <div className="px-3.5 py-2 rounded-full bg-slate-950/95 text-white border border-emerald-400/50 shadow-2xl flex items-center gap-2 text-xs font-bold max-w-xs sm:max-w-sm">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
-            <span className="truncate">
-              {micTranscript
-                ? `“${micTranscript}”`
-                : 'Listening… say "Online", "Accept", "Recenter"'}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Right Floating Map Controls — compact on phones, Zoom + Mic always visible */}
+      {/* Right Floating Map Controls — compact on phones, non-overlapping vertical rail */}
       <div
-        className={`absolute right-2 sm:right-3 z-[420] flex flex-col gap-1 sm:gap-1.5 ${
+        className={`absolute right-2.5 sm:right-3 z-[420] flex flex-col gap-1.5 sm:gap-2 ${
           isNavigating
             ? 'top-[max(0.75rem,env(safe-area-inset-top))]'
-            : 'top-[max(3.65rem,calc(env(safe-area-inset-top)+2.85rem))] lg:top-3.5'
+            : 'top-[max(3.75rem,calc(env(safe-area-inset-top)+3rem))] lg:top-3.5'
         }`}
       >
         <button
@@ -900,30 +811,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         >
           <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
-
-        {onToggleMic && (
-          <button
-            type="button"
-            onClick={onToggleMic}
-            aria-label={isMicListening ? 'Stop voice microphone' : 'Voice command & audio mic'}
-            className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center active:scale-95 transition-all ${
-              isMicListening
-                ? 'bg-rose-600 text-white border-rose-400 animate-pulse'
-                : 'bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-white border-slate-200/80 dark:border-slate-700'
-            }`}
-            title={
-              isMicListening
-                ? 'Listening — tap to stop'
-                : 'Hands-free Voice Mic ("Go online", "Accept", "Recenter")'
-            }
-          >
-            {isMicListening ? (
-              <MicOff className="w-4 h-4 sm:w-5 sm:h-5" />
-            ) : (
-              <Mic className="w-4 h-4 sm:w-5 sm:h-5 text-[#25B670]" />
-            )}
-          </button>
-        )}
 
         {!isNavigating && (
           <button
@@ -1037,28 +924,20 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
           <Compass className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
 
-        <div className="flex flex-col rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 overflow-hidden">
+        <div className="hidden sm:flex flex-col rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 overflow-hidden">
           <button
             type="button"
-            onClick={() => {
-              zoomLockUntilRef.current = Date.now() + 350;
-              mapRef.current?.zoomIn();
-            }}
+            onClick={() => mapRef.current?.zoomIn()}
             aria-label="Zoom in"
-            title="Zoom in"
-            className="w-9 h-8 sm:w-11 sm:h-10 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:bg-slate-200 dark:active:bg-slate-700 border-b border-slate-200/70 dark:border-slate-700"
+            className="w-11 h-10 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border-b border-slate-200/70 dark:border-slate-700"
           >
             <Plus className="w-4 h-4" />
           </button>
           <button
             type="button"
-            onClick={() => {
-              zoomLockUntilRef.current = Date.now() + 350;
-              mapRef.current?.zoomOut();
-            }}
+            onClick={() => mapRef.current?.zoomOut()}
             aria-label="Zoom out"
-            title="Zoom out"
-            className="w-9 h-8 sm:w-11 sm:h-10 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:bg-slate-200 dark:active:bg-slate-700"
+            className="w-11 h-10 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <Minus className="w-4 h-4" />
           </button>

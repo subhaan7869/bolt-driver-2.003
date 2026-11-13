@@ -507,93 +507,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
   onClose,
 }) => {
   const [draft, setDraft] = useState('');
-  const [isDictating, setIsDictating] = useState(false);
-  const recognitionRef = useRef<{ stop: () => void } | null>(null);
   const quickReplies = ["I've arrived", 'On my way, 2 mins away', 'Are you at the pickup pin?'];
-
-  const handleToggleChatMic = async () => {
-    if (isDictating) {
-      recognitionRef.current?.stop();
-      setIsDictating(false);
-      return;
-    }
-
-    const SpeechRec =
-      (window as unknown as {
-        SpeechRecognition?: new () => {
-          lang: string;
-          interimResults: boolean;
-          maxAlternatives: number;
-          onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-          onerror: (() => void) | null;
-          onend: (() => void) | null;
-          start: () => void;
-          stop: () => void;
-        };
-        webkitSpeechRecognition?: new () => {
-          lang: string;
-          interimResults: boolean;
-          maxAlternatives: number;
-          onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-          onerror: (() => void) | null;
-          onend: (() => void) | null;
-          start: () => void;
-          stop: () => void;
-        };
-      }).SpeechRecognition ||
-      (window as unknown as {
-        webkitSpeechRecognition?: new () => {
-          lang: string;
-          interimResults: boolean;
-          maxAlternatives: number;
-          onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-          onerror: (() => void) | null;
-          onend: (() => void) | null;
-          start: () => void;
-          stop: () => void;
-        };
-      }).webkitSpeechRecognition;
-
-    if (SpeechRec) {
-      try {
-        const rec = new SpeechRec();
-        rec.lang = 'en-GB';
-        rec.interimResults = false;
-        rec.maxAlternatives = 1;
-        rec.onresult = (event) => {
-          const spoken = event.results?.[0]?.[0]?.transcript?.trim();
-          if (spoken) {
-            setDraft((prev) => (prev ? `${prev} ${spoken}` : spoken));
-          }
-        };
-        rec.onerror = () => setIsDictating(false);
-        rec.onend = () => setIsDictating(false);
-        recognitionRef.current = rec;
-        setIsDictating(true);
-        rec.start();
-        return;
-      } catch {
-        setIsDictating(false);
-      }
-    }
-
-    // Fallback: request microphone & attach a quick voice message
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        setIsDictating(true);
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setTimeout(() => {
-          stream.getTracks().forEach((t) => t.stop());
-          setIsDictating(false);
-          onSendMessage('Voice note: Outside pickup point now.');
-        }, 1800);
-        return;
-      } catch {
-        setIsDictating(false);
-      }
-    }
-    setIsDictating(false);
-  };
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -734,22 +648,9 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
               type="text"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder={isDictating ? 'Listening...' : `Message ${riderName}...`}
+              placeholder={`Message ${riderName}...`}
               className="flex-1 min-w-0 h-12 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
             />
-            <button
-              type="button"
-              onClick={handleToggleChatMic}
-              aria-label={isDictating ? 'Stop voice dictation' : 'Voice dictation'}
-              title={isDictating ? 'Listening — tap to stop' : 'Speak message'}
-              className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-colors ${
-                isDictating
-                  ? 'bg-rose-600 text-white animate-pulse'
-                  : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              {isDictating ? <Square className="w-4 h-4 fill-current" /> : <Mic className="w-5 h-5" />}
-            </button>
             <button
               type="submit"
               aria-label="Send message"
