@@ -13,8 +13,20 @@ const SUBDOMAINS = ['a', 'b', 'c', 'd'] as const;
 async function startServer() {
   const app = express();
 
-  // Server-side CARTO basemap tile proxy (keeps CARTO_API_KEY private on the server)
+  app.get('/api/tiles/info', (_req: Request, res: Response) => {
+    const rawKey = (process.env.CARTO_API_KEY || process.env.VITE_CARTO_API_KEY || '').trim();
+    const hasCartoKey = Boolean(rawKey && rawKey !== 'MY_CARTO_API_KEY');
+    res.json({ cartoConfigured: hasCartoKey });
+  });
+
+  // Server-side basemap tile proxy (uses CARTO only if configured & unwatermarked; otherwise keyless ArcGIS/OSM)
   app.get('/api/tiles/:style/:z/:x/:yFile', async (req: Request, res: Response) => {
+    if (req.query.mode === 'info') {
+      const rawKey = (process.env.CARTO_API_KEY || process.env.VITE_CARTO_API_KEY || '').trim();
+      res.json({ cartoConfigured: Boolean(rawKey && rawKey !== 'MY_CARTO_API_KEY') });
+      return;
+    }
+
     const style = String(req.params.style || '');
     const z = Number(req.params.z);
     const x = Number(req.params.x);
@@ -41,30 +53,40 @@ async function startServer() {
     const rawKey = (process.env.CARTO_API_KEY || process.env.VITE_CARTO_API_KEY || '').trim();
     const hasCartoKey = Boolean(rawKey && rawKey !== 'MY_CARTO_API_KEY');
 
-    const cartoPath =
-      style === 'dark_all'
-        ? `dark_all/${z}/${x}/${y}${retinaSuffix}.png`
-        : `rastertiles/voyager/${z}/${x}/${y}${retinaSuffix}.png`;
-
-    const cartoUrl = hasCartoKey
-      ? `https://${sub}.basemaps.cartocdn.com/${cartoPath}?key=${encodeURIComponent(rawKey)}`
-      : `https://${sub}.basemaps.cartocdn.com/${cartoPath}`;
-
     try {
       let tileResponse: globalThis.Response | null = null;
 
-      const candidate = await fetch(cartoUrl, {
-        headers: { Accept: 'image/png,image/*;q=0.8' },
-      });
-      if (candidate.ok) {
-        tileResponse = candidate;
+      if (hasCartoKey) {
+        const cartoPath =
+          style === 'dark_all'
+            ? `dark_all/${z}/${x}/${y}${retinaSuffix}.png`
+            : `rastertiles/voyager/${z}/${x}/${y}${retinaSuffix}.png`;
+        const cartoUrl = `https://${sub}.basemaps.cartocdn.com/${cartoPath}?key=${encodeURIComponent(rawKey)}`;
+        const candidate = await fetch(cartoUrl, {
+          headers: { Accept: 'image/png,image/*;q=0.8' },
+        });
+        const etag = (candidate.headers.get('etag') || '').toLowerCase();
+        if (candidate.ok && !etag.includes('wm-')) {
+          tileResponse = candidate;
+        }
       }
 
-      // Clean OpenStreetMap fallback if CARTO_API_KEY is not configured yet or rejected
+      if (!tileResponse) {
+        const arcgisCandidate = await fetch(
+          `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`,
+          {
+            headers: { Accept: 'image/jpeg,image/png,image/*;q=0.8' },
+          }
+        );
+        if (arcgisCandidate.ok) {
+          tileResponse = arcgisCandidate;
+        }
+      }
+
       if (!tileResponse) {
         tileResponse = await fetch(`https://tile.openstreetmap.org/${z}/${x}/${y}.png`, {
           headers: {
-            'User-Agent': 'BoltDriverReplica/1.0 (+https://bolt.eu)',
+            'User-Agent': 'BoltDriverApp/1.0 (+https://bolt.eu)',
             Accept: 'image/png,image/*;q=0.8',
           },
         });
