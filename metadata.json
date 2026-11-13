@@ -1,6 +1,6 @@
 {
   "name": "Bolt Driver",
   "description": "Ride-hailing driver companion with live dispatch map, turn-by-turn navigation, trip workflow, and earnings tracking.",
-  "requestFramePermissions": ["geolocation", "microphone"],
+  "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
