@@ -1,37 +1,22 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   AlertTriangle,
-  Award,
   Car,
   Check,
   Clock,
   Compass,
-  Flame,
   Gavel,
   Globe,
-  Mic,
-  Moon,
   PhoneCall,
   Send,
   Share2,
   ShieldAlert,
-  Square,
-  TrendingUp,
-  Video,
-  Volume2,
   X,
 } from 'lucide-react';
 import { getCityById } from '../data/worldMapData';
-import {
-  ChatMessage,
-  DriverSettings,
-  IncidentReport,
-  LatLng,
-  RideCategory,
-} from '../types/driver';
-import { formatMiles, kmToMi } from '../utils/units';
+import { ChatMessage, DriverSettings, LatLng, RideCategory } from '../types/driver';
 
-// 1. Enhanced Trip Preferences Sheet (Bolt Flex, Bolt City, 1-5 min Job Timer, Daily Goal, Insurance Gating)
+// 1. Enhanced Trip Preferences Sheet (Bolt Flex, Bolt City, 1-5 min Job Timer, Insurance Gating)
 interface PreferencesModalProps {
   settings: DriverSettings;
   currency: string;
@@ -74,352 +59,275 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center sm:items-center justify-center p-3 sm:p-4">
-      <div className="w-full max-w-[380px] sm:max-w-md bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[78dvh] sm:max-h-[86dvh]">
-        <div className="px-3.5 py-2.5 sm:px-5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
-          <div className="min-w-0">
-            <h3 className="text-base sm:text-lg font-extrabold text-slate-950 dark:text-white leading-tight">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-5 max-h-[88vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-extrabold text-slate-950 dark:text-white">
               Trip preferences
             </h3>
-            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
-              Categories, timers, goals &amp; filters
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Bolt Flex, Bolt City, job timers, fare filters &amp; auto-accept
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close trip preferences"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0"
+            className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
           >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-3.5 sm:p-5 overflow-y-auto flex-1 space-y-3 sm:space-y-4">
-          {isInsuranceExpired && (
-            <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 flex items-center justify-between gap-2.5">
-              <div>
-                <div className="text-[11px] font-extrabold text-rose-700 dark:text-rose-300">
-                  INSURANCE EXPIRED
-                </div>
-                <div className="text-[10px] sm:text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
-                  Passenger rides paused until renewed.
-                </div>
+        {isInsuranceExpired && (
+          <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-extrabold text-rose-700 dark:text-rose-300">
+                INSURANCE EXPIRED
               </div>
+              <div className="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
+                Passenger ride categories are disabled until Hire &amp; Reward cover is renewed.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenInsuranceRenewal();
+              }}
+              className="px-3 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-bold shrink-0"
+            >
+              Renew
+            </button>
+          </div>
+        )}
+
+        {/* Ride Categories including Bolt Flex & Bolt City */}
+        <div className="space-y-2.5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Trip categories
+          </p>
+          <div className="grid grid-cols-2 gap-2.5">
+            {availableCategories.map((cat) => {
+              const blocked = isInsuranceExpired && cat !== 'Delivery';
+              const active = !blocked && settings.enabledCategories.includes(cat);
+              const meta = getCategoryMeta(cat);
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  disabled={blocked}
+                  onClick={() => toggleCategory(cat)}
+                  className={`flex items-center justify-between px-3.5 py-3 rounded-2xl border text-sm font-bold transition-all ${
+                    blocked
+                      ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200/70 dark:border-rose-900/50 text-rose-400 cursor-not-allowed'
+                      : active
+                      ? 'bg-[#34D186]/15 border-[#34D186] text-slate-950 dark:text-white'
+                      : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  <div className="text-left min-w-0">
+                    <span className="flex items-center gap-2">
+                      {meta.icon}
+                      <span className="truncate">{cat}</span>
+                    </span>
+                    {blocked ? (
+                      <div className="text-[10px] font-extrabold text-rose-500 mt-0.5">
+                        INSURANCE EXPIRED
+                      </div>
+                    ) : meta.subtitle ? (
+                      <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                        {meta.subtitle}
+                      </div>
+                    ) : null}
+                  </div>
+                  {active && <Check className="w-4 h-4 text-[#25B670] shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Job Offer Timer (1 to 5 minutes) */}
+        <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-slate-900 dark:text-white">
+              Job offer timer (1–5 min)
+            </span>
+            <span className="text-xs font-extrabold text-[#25B670] font-mono-num">
+              {Math.round(settings.offerTimeoutSec / 60)} min
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {([60, 120, 180, 300] as const).map((sec) => (
               <button
+                key={sec}
                 type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenInsuranceRenewal();
-                }}
-                className="px-2.5 py-1.5 rounded-lg bg-rose-600 text-white text-[11px] font-bold shrink-0"
+                onClick={() => onUpdateSettings({ offerTimeoutSec: sec })}
+                className={`py-2 rounded-xl text-xs font-bold border transition-colors ${
+                  settings.offerTimeoutSec === sec
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
+                    : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
               >
-                Renew
+                {sec / 60} min
               </button>
-            </div>
-          )}
-
-          {/* Ride Categories */}
-          <div className="space-y-1.5 sm:space-y-2">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Trip categories
-            </p>
-            <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
-              {availableCategories.map((cat) => {
-                const blocked = isInsuranceExpired && cat !== 'Delivery';
-                const active = !blocked && settings.enabledCategories.includes(cat);
-                const meta = getCategoryMeta(cat);
-                return (
-                  <button
-                    key={cat}
-                    type="button"
-                    disabled={blocked}
-                    onClick={() => toggleCategory(cat)}
-                    className={`flex items-center justify-between px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl sm:rounded-2xl border text-xs sm:text-sm font-bold transition-all ${
-                      blocked
-                        ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200/70 dark:border-rose-900/50 text-rose-400 cursor-not-allowed'
-                        : active
-                        ? 'bg-[#34D186]/15 border-[#34D186] text-slate-950 dark:text-white'
-                        : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
-                    }`}
-                  >
-                    <div className="text-left min-w-0">
-                      <span className="flex items-center gap-1.5">
-                        {meta.icon}
-                        <span className="truncate">{cat}</span>
-                      </span>
-                      {blocked ? (
-                        <div className="text-[9px] font-extrabold text-rose-500 mt-0.5">
-                          EXPIRED
-                        </div>
-                      ) : meta.subtitle ? (
-                        <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                          {meta.subtitle}
-                        </div>
-                      ) : null}
-                    </div>
-                    {active && <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#25B670] shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Daily Earnings Goal */}
-          <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                Daily earnings goal
-              </span>
-              <span className="text-xs font-extrabold text-[#25B670] font-mono-num">
-                {currency}
-                {settings.dailyGoal}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-              {[100, 150, 200, 300].map((goal) => (
-                <button
-                  key={goal}
-                  type="button"
-                  onClick={() => onUpdateSettings({ dailyGoal: goal })}
-                  className={`h-8 sm:h-9 rounded-lg sm:rounded-xl text-xs font-bold border transition-colors ${
-                    settings.dailyGoal === goal
-                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {currency}
-                  {goal}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Wait for Next Job Timer */}
-          <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                  Wait for next job (1–5 min)
-                </span>
-                <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400">
-                  Delay after ride completion or decline
-                </div>
-              </div>
-              <span className="text-xs font-extrabold text-[#25B670] font-mono-num">
-                {settings.dispatchWaitSec === 0
-                  ? 'Random (1–5m)'
-                  : `${Math.round(settings.dispatchWaitSec / 60)} min`}
-              </span>
-            </div>
-            <div className="grid grid-cols-5 gap-1.5">
-              {([0, 60, 120, 180, 300] as const).map((sec) => (
-                <button
-                  key={sec}
-                  type="button"
-                  onClick={() => onUpdateSettings({ dispatchWaitSec: sec })}
-                  className={`h-9 sm:h-10 rounded-lg sm:rounded-xl text-xs font-bold border transition-colors ${
-                    settings.dispatchWaitSec === sec
-                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {sec === 0 ? 'Random' : `${sec / 60}m`}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Minimum Fare Filter */}
-          <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                Minimum trip fare
-              </span>
-              <span className="text-xs font-extrabold text-[#25B670] font-mono-num">
-                {settings.minFareFilter === 0 ? 'Any fare' : `${currency}${settings.minFareFilter}+`}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-              {[0, 8, 12, 18].map((val) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => onUpdateSettings({ minFareFilter: val })}
-                  className={`h-8 sm:h-9 rounded-lg sm:rounded-xl text-xs font-bold border transition-colors ${
-                    settings.minFareFilter === val
-                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {val === 0 ? 'Any' : `${currency}${val}+`}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Max Pickup Distance */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                Max pickup distance
-              </span>
-              <span className="text-xs font-extrabold text-[#25B670] font-mono-num">
-                Up to {Math.round(kmToMi(settings.maxPickupKm))} mi
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-              {[2, 4, 6, 10].map((km) => (
-                <button
-                  key={km}
-                  type="button"
-                  onClick={() => onUpdateSettings({ maxPickupKm: km })}
-                  className={`h-8 sm:h-9 rounded-lg sm:rounded-xl text-xs font-bold border transition-colors ${
-                    settings.maxPickupKm === km
-                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {Math.round(kmToMi(km))} mi
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Minimum Rider Rating */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                Minimum rider rating
-              </span>
-              <span className="text-xs font-extrabold text-amber-500 font-mono-num">
-                {settings.minRiderRating === 0 ? 'Any' : `${settings.minRiderRating.toFixed(1)}★+`}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-              {[0, 4.5, 4.7, 4.85].map((rating) => (
-                <button
-                  key={rating}
-                  type="button"
-                  onClick={() => onUpdateSettings({ minRiderRating: rating })}
-                  className={`h-8 sm:h-9 rounded-lg sm:rounded-xl text-xs font-bold border transition-colors ${
-                    settings.minRiderRating === rating
-                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {rating === 0 ? 'Any' : `${rating}★+`}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Toggles */}
-          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <label className="flex items-center justify-between py-0.5 cursor-pointer gap-2">
-              <div className="min-w-0">
-                <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                  Counter-bid on Bolt Flex offers
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  Propose a custom fare on incoming requests
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.allowBidOffers}
-                onChange={(e) => onUpdateSettings({ allowBidOffers: e.target.checked })}
-                className="w-4 h-4 sm:w-5 sm:h-5 accent-[#34D186] rounded shrink-0"
-              />
-            </label>
-
-            <label className="flex items-center justify-between py-0.5 cursor-pointer gap-2">
-              <div className="min-w-0">
-                <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                  Auto-accept matching rides
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  Accept offers within fare &amp; distance filters
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.autoAccept}
-                onChange={(e) => onUpdateSettings({ autoAccept: e.target.checked })}
-                className="w-4 h-4 sm:w-5 sm:h-5 accent-[#34D186] rounded shrink-0"
-              />
-            </label>
-
-            <label className="flex items-center justify-between py-0.5 cursor-pointer gap-2">
-              <div className="min-w-0">
-                <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                  Accept cash payments
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  Receive cash alongside card &amp; Apple Pay
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.acceptCash}
-                onChange={(e) => onUpdateSettings({ acceptCash: e.target.checked })}
-                className="w-4 h-4 sm:w-5 sm:h-5 accent-[#34D186] rounded shrink-0"
-              />
-            </label>
-
-            <label className="flex items-center justify-between py-0.5 cursor-pointer gap-2">
-              <div className="min-w-0">
-                <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Moon className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                  <span>Auto night mode (dusk–dawn)</span>
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  Switch to dark map tiles after 18:00
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={Boolean(settings.autoNightMode)}
-                onChange={(e) => onUpdateSettings({ autoNightMode: e.target.checked })}
-                className="w-4 h-4 sm:w-5 sm:h-5 accent-[#34D186] rounded shrink-0"
-              />
-            </label>
-
-            <label className="flex items-center justify-between py-0.5 cursor-pointer gap-2">
-              <div className="min-w-0">
-                <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Volume2 className="w-3.5 h-3.5 text-[#25B670] shrink-0" />
-                  <span>Spoken voice turn guidance</span>
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  Read turn &amp; speed camera warnings aloud
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.voiceGuidance !== false}
-                onChange={(e) => onUpdateSettings({ voiceGuidance: e.target.checked })}
-                className="w-4 h-4 sm:w-5 sm:h-5 accent-[#34D186] rounded shrink-0"
-              />
-            </label>
+            ))}
           </div>
         </div>
 
-        <div className="px-3.5 py-2.5 sm:px-5 sm:py-3.5 border-t border-slate-100 dark:border-slate-800 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full h-10 sm:h-11 rounded-xl sm:rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-bold text-xs sm:text-sm"
-          >
-            Save trip preferences
-          </button>
+        {/* Minimum Fare Filter */}
+        <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-slate-900 dark:text-white">
+              Minimum trip fare
+            </span>
+            <span className="text-xs font-extrabold text-[#25B670] font-mono-num">
+              {settings.minFareFilter === 0 ? 'Any fare' : `${currency}${settings.minFareFilter}+`}
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {[0, 8, 12, 18].map((val) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => onUpdateSettings({ minFareFilter: val })}
+                className={`py-2 rounded-xl text-xs font-bold border transition-colors ${
+                  settings.minFareFilter === val
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
+                    : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                {val === 0 ? 'Any' : `${currency}${val}+`}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Max Pickup Distance */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-slate-900 dark:text-white">
+              Max pickup distance
+            </span>
+            <span className="text-xs font-extrabold text-[#25B670] font-mono-num">
+              Up to {settings.maxPickupKm} km
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {[2, 4, 6, 10].map((km) => (
+              <button
+                key={km}
+                type="button"
+                onClick={() => onUpdateSettings({ maxPickupKm: km })}
+                className={`py-2 rounded-xl text-xs font-bold border transition-colors ${
+                  settings.maxPickupKm === km
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
+                    : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                {km} km
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Minimum Rider Rating */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-slate-900 dark:text-white">
+              Minimum rider rating
+            </span>
+            <span className="text-xs font-extrabold text-amber-500 font-mono-num">
+              {settings.minRiderRating === 0 ? 'Any' : `${settings.minRiderRating.toFixed(1)}★+`}
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {[0, 4.5, 4.7, 4.85].map((rating) => (
+              <button
+                key={rating}
+                type="button"
+                onClick={() => onUpdateSettings({ minRiderRating: rating })}
+                className={`py-2 rounded-xl text-xs font-bold border transition-colors ${
+                  settings.minRiderRating === rating
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
+                    : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                {rating === 0 ? 'Any' : `${rating}★+`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Toggles */}
+        <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <label className="flex items-center justify-between py-1 cursor-pointer">
+            <div>
+              <div className="text-sm font-bold text-slate-900 dark:text-white">
+                Show counter-bid option on offers
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Allow proposing a custom fare on incoming Bolt Flex rides
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.allowBidOffers}
+              onChange={(e) => onUpdateSettings({ allowBidOffers: e.target.checked })}
+              className="w-5 h-5 accent-[#34D186] rounded"
+            />
+          </label>
+
+          <label className="flex items-center justify-between py-1 cursor-pointer">
+            <div>
+              <div className="text-sm font-bold text-slate-900 dark:text-white">
+                Auto-accept matching rides
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Automatically accept offers within your fare &amp; distance filters
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.autoAccept}
+              onChange={(e) => onUpdateSettings({ autoAccept: e.target.checked })}
+              className="w-5 h-5 accent-[#34D186] rounded"
+            />
+          </label>
+
+          <label className="flex items-center justify-between py-1 cursor-pointer">
+            <div>
+              <div className="text-sm font-bold text-slate-900 dark:text-white">
+                Accept cash payments
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Receive riders paying with cash in addition to card &amp; Apple Pay
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.acceptCash}
+              onChange={(e) => onUpdateSettings({ acceptCash: e.target.checked })}
+              className="w-5 h-5 accent-[#34D186] rounded"
+            />
+          </label>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full h-12 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-bold text-sm"
+        >
+          Save trip preferences
+        </button>
       </div>
     </div>
   );
 };
 
-// 2. Destination Filter Modal
+// 2. Destination Filter Modal (World City aware)
 interface DestinationModalProps {
   cityId: string;
   currentTargetLabel: string | null;
@@ -444,24 +352,24 @@ export const DestinationModal: React.FC<DestinationModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-      <div className="w-full max-w-[380px] sm:max-w-md bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3 max-h-[74dvh] sm:max-h-[82dvh] flex flex-col">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="text-base sm:text-lg font-extrabold text-slate-950 dark:text-white leading-tight">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[82vh] flex flex-col">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-extrabold text-slate-950 dark:text-white">
               Driver destination
             </h3>
-            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
-              Match rides toward your {city.name} area
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Match rides heading toward your chosen {city.name} area
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close destination filter"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0"
+            className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
           >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -470,7 +378,7 @@ export const DestinationModal: React.FC<DestinationModalProps> = ({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Search ${city.name} area or station...`}
-          className="w-full h-9 sm:h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#34D186]"
+          className="w-full h-11 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#34D186]"
         />
 
         <div className="overflow-y-auto flex-1 divide-y divide-slate-100 dark:divide-slate-800">
@@ -522,7 +430,7 @@ export const DestinationModal: React.FC<DestinationModalProps> = ({
   );
 };
 
-// 3. Full-Screen Rider Chat Drawer
+// 3. In-App Rider Chat Drawer with 2-Minute No-Response Timer & Cancel-for-Fee Option
 interface RiderChatModalProps {
   riderName: string;
   messages: ChatMessage[];
@@ -549,93 +457,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
   onClose,
 }) => {
   const [draft, setDraft] = useState('');
-  const [isDictating, setIsDictating] = useState(false);
-  const recognitionRef = useRef<{ stop: () => void } | null>(null);
   const quickReplies = ["I've arrived", 'On my way, 2 mins away', 'Are you at the pickup pin?'];
-
-  const handleToggleChatMic = async () => {
-    if (isDictating) {
-      recognitionRef.current?.stop();
-      setIsDictating(false);
-      return;
-    }
-
-    const SpeechRec =
-      (window as unknown as {
-        SpeechRecognition?: new () => {
-          lang: string;
-          interimResults: boolean;
-          maxAlternatives: number;
-          onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-          onerror: (() => void) | null;
-          onend: (() => void) | null;
-          start: () => void;
-          stop: () => void;
-        };
-        webkitSpeechRecognition?: new () => {
-          lang: string;
-          interimResults: boolean;
-          maxAlternatives: number;
-          onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-          onerror: (() => void) | null;
-          onend: (() => void) | null;
-          start: () => void;
-          stop: () => void;
-        };
-      }).SpeechRecognition ||
-      (window as unknown as {
-        webkitSpeechRecognition?: new () => {
-          lang: string;
-          interimResults: boolean;
-          maxAlternatives: number;
-          onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-          onerror: (() => void) | null;
-          onend: (() => void) | null;
-          start: () => void;
-          stop: () => void;
-        };
-      }).webkitSpeechRecognition;
-
-    if (SpeechRec) {
-      try {
-        const rec = new SpeechRec();
-        rec.lang = 'en-GB';
-        rec.interimResults = false;
-        rec.maxAlternatives = 1;
-        rec.onresult = (event) => {
-          const spoken = event.results?.[0]?.[0]?.transcript?.trim();
-          if (spoken) {
-            setDraft((prev) => (prev ? `${prev} ${spoken}` : spoken));
-          }
-        };
-        rec.onerror = () => setIsDictating(false);
-        rec.onend = () => setIsDictating(false);
-        recognitionRef.current = rec;
-        setIsDictating(true);
-        rec.start();
-        return;
-      } catch {
-        setIsDictating(false);
-      }
-    }
-
-    // Fallback: request microphone & attach a quick voice message
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        setIsDictating(true);
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setTimeout(() => {
-          stream.getTracks().forEach((t) => t.stop());
-          setIsDictating(false);
-          onSendMessage('Voice note: Outside pickup point now.');
-        }, 1800);
-        return;
-      } catch {
-        setIsDictating(false);
-      }
-    }
-    setIsDictating(false);
-  };
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -652,44 +474,39 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
   const ss = (remainingSec % 60).toString().padStart(2, '0');
 
   return (
-    <div className="fixed inset-0 z-[750] w-screen h-dvh bg-white dark:bg-slate-950 flex flex-col">
-      <div className="px-4 pt-[max(0.85rem,env(safe-area-inset-top))] pb-3 border-b border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-full bg-[#34D186]/15 text-[#25B670] font-extrabold text-sm flex items-center justify-center shrink-0">
-            {riderName.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-base font-extrabold text-slate-950 dark:text-white truncate leading-tight">
-              {riderName}
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col h-[75vh] sm:h-[560px]">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-extrabold text-slate-950 dark:text-white">
+              Chat with {riderName}
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-              Masked Bolt customer chat · 2-min response protection
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              In-app masked messaging · 2-min response protection
             </p>
           </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close chat"
+            className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close chat"
-          className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shrink-0"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
 
-      {awaitingRiderReply && (
-        <div
-          className={`px-4 py-3 border-b text-xs shrink-0 ${
-            noResponseReached
-              ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800'
-              : 'bg-slate-50 dark:bg-slate-900 border-slate-200/80 dark:border-slate-800'
-          }`}
-        >
-          <div className="max-w-2xl mx-auto">
+        {awaitingRiderReply && (
+          <div
+            className={`px-4 py-2.5 border-b text-xs ${
+              noResponseReached
+                ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800'
+                : 'bg-slate-50 dark:bg-slate-800/70 border-slate-100 dark:border-slate-800'
+            }`}
+          >
             {!noResponseReached ? (
               <div className="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200">
                 <span className="inline-flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-amber-500" />
+                  <Clock className="w-3.5 h-3.5 text-amber-500" />
                   Waiting for {riderName} to reply...
                 </span>
                 <span className="font-mono-num font-extrabold text-amber-600 dark:text-amber-400">
@@ -702,18 +519,18 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
                   No response within 2 minutes — choose to wait or cancel for {currency}
                   {noResponseFeeAmount.toFixed(2)}
                 </div>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={onWaitLonger}
-                    className="h-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-white"
+                    className="h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-white"
                   >
                     Wait Longer
                   </button>
                   <button
                     type="button"
                     onClick={onCancelCollectFee}
-                    className="h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold"
+                    className="h-9 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold"
                   >
                     Cancel (+{currency}
                     {noResponseFeeAmount.toFixed(2)})
@@ -722,14 +539,12 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="max-w-2xl mx-auto space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 ? (
-            <div className="text-center py-16 text-sm text-slate-400">
-              No messages yet. Tap a quick reply below or message {riderName}.
+            <div className="text-center py-10 text-xs text-slate-400">
+              No messages yet. Tap a quick reply below or type a message.
             </div>
           ) : (
             messages.map((msg) => (
@@ -740,32 +555,30 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
                 }`}
               >
                 <div
-                  className={`max-w-[82%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                  className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm ${
                     msg.sender === 'driver'
-                      ? 'bg-[#34D186] text-slate-950 font-semibold rounded-br-sm'
+                      ? 'bg-[#34D186] text-slate-950 font-medium rounded-br-sm'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-bl-sm'
                   }`}
                 >
                   {msg.text}
                 </div>
-                <span className="text-[11px] text-slate-400 mt-1 px-1 tabular-nums">
+                <span className="text-[10px] text-slate-400 mt-1 px-1 tabular-nums">
                   {msg.timestamp}
                 </span>
               </div>
             ))
           )}
         </div>
-      </div>
 
-      <div className="px-4 pt-3 pb-[max(0.85rem,env(safe-area-inset-bottom))] border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
-        <div className="max-w-2xl mx-auto space-y-2.5">
-          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+        <div className="p-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
             {quickReplies.map((qr) => (
               <button
                 key={qr}
                 type="button"
                 onClick={() => onSendMessage(qr)}
-                className="px-3.5 min-h-[38px] py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap shrink-0"
+                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap shrink-0"
               >
                 {qr}
               </button>
@@ -776,28 +589,15 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
               type="text"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder={isDictating ? 'Listening...' : `Message ${riderName}...`}
-              className="flex-1 min-w-0 h-12 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
+              placeholder="Write a message..."
+              className="flex-1 h-11 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
             />
-            <button
-              type="button"
-              onClick={handleToggleChatMic}
-              aria-label={isDictating ? 'Stop voice dictation' : 'Voice dictation'}
-              title={isDictating ? 'Listening — tap to stop' : 'Speak message'}
-              className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-colors ${
-                isDictating
-                  ? 'bg-rose-600 text-white animate-pulse'
-                  : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              {isDictating ? <Square className="w-4 h-4 fill-current" /> : <Mic className="w-5 h-5" />}
-            </button>
             <button
               type="submit"
               aria-label="Send message"
-              className="w-12 h-12 rounded-2xl bg-[#34D186] hover:bg-[#29BE77] text-slate-950 flex items-center justify-center shrink-0 transition-colors"
+              className="w-11 h-11 rounded-xl bg-[#34D186] text-slate-950 flex items-center justify-center shrink-0"
             >
-              <Send className="w-5 h-5" />
+              <Send className="w-4 h-4" />
             </button>
           </form>
         </div>
@@ -828,19 +628,19 @@ export const CancelRideModal: React.FC<CancelRideModalProps> = ({
       ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-      <div className="w-full max-w-[380px] sm:max-w-md bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3 max-h-[74dvh] sm:max-h-[82dvh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-base sm:text-lg font-extrabold text-slate-950 dark:text-white">
+          <h3 className="text-lg font-extrabold text-slate-950 dark:text-white">
             {isInProgress ? 'End trip early?' : 'Cancel ride?'}
           </h3>
           <button
             type="button"
             onClick={onClose}
             aria-label="Keep ride"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
+            className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
           >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -852,7 +652,7 @@ export const CancelRideModal: React.FC<CancelRideModalProps> = ({
               key={reason}
               type="button"
               onClick={() => onConfirmCancel(reason)}
-              className="w-full min-h-[48px] text-left px-4 py-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-sm font-semibold text-slate-800 dark:text-slate-200 hover:text-rose-700 dark:hover:text-rose-300 transition-colors"
+              className="w-full text-left px-4 py-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-sm font-semibold text-slate-800 dark:text-slate-200 hover:text-rose-700 dark:hover:text-rose-300 transition-colors"
             >
               {reason}
             </button>
@@ -863,123 +663,28 @@ export const CancelRideModal: React.FC<CancelRideModalProps> = ({
   );
 };
 
-// 5. Upgraded Safety Toolkit Modal (SOS Share-Location Card, Audio Clip Note, Incident Report attached to trip)
+// 5. Safety Toolkit Modal
 interface SafetyModalProps {
-  driverPos: LatLng;
-  vehicleLabel: string;
-  vehiclePlate: string;
-  activeTripLabel?: string;
-  activeTripId?: string;
-  riderName?: string;
-  incidents: IncidentReport[];
-  onSaveIncident: (entry: Omit<IncidentReport, 'id' | 'createdAtLabel' | 'createdAtMs'>) => void;
   onClose: () => void;
 }
 
-export const SafetyModal: React.FC<SafetyModalProps> = ({
-  driverPos,
-  vehicleLabel,
-  vehiclePlate,
-  activeTripLabel,
-  activeTripId,
-  riderName,
-  incidents,
-  onSaveIncident,
-  onClose,
-}) => {
+export const SafetyModal: React.FC<SafetyModalProps> = ({ onClose }) => {
   const [sharedToast, setSharedToast] = useState<string | null>(null);
-  const [incidentType, setIncidentType] = useState<IncidentReport['type']>('Vehicle / Dashcam');
-  const [summary, setSummary] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const [hasAudioNote, setHasAudioNote] = useState(false);
-  const [audioSec, setAudioSec] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordTimerRef = useRef<number | null>(null);
-
-  const handleShareSosLocation = async () => {
-    const shareText = `BOLT DRIVER SOS / LIVE LOCATION\nVehicle: ${vehicleLabel} (${vehiclePlate})\nCoords: ${driverPos.lat.toFixed(
-      5
-    )}, ${driverPos.lng.toFixed(5)}\nMaps: https://maps.google.com/?q=${driverPos.lat},${
-      driverPos.lng
-    }${activeTripLabel ? `\nTrip: ${activeTripLabel}` : ''}`;
-
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'Bolt Driver Live Location', text: shareText });
-        setSharedToast('Emergency location card shared via device share sheet.');
-      } else {
-        await navigator.clipboard.writeText(shareText);
-        setSharedToast('Emergency location card copied to clipboard.');
-      }
-    } catch {
-      setSharedToast('Emergency location card ready: GPS coordinates captured.');
-    }
-  };
-
-  const toggleAudioRecording = async () => {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
-      setIsRecording(false);
-      setHasAudioNote(true);
-      setSharedToast(`Audio safety clip attached (${audioSec || 1}s).`);
-      return;
-    }
-
-    setAudioSec(0);
-    setIsRecording(true);
-    recordTimerRef.current = window.setInterval(() => {
-      setAudioSec((s) => s + 1);
-    }, 1000);
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-      };
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-    } catch {
-      // Graceful fallback audio clip note timer if mic blocked
-    }
-  };
-
-  const handleSubmitIncident = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!summary.trim() && !hasAudioNote) return;
-    onSaveIncident({
-      type: incidentType,
-      summary: (summary.trim() || 'Audio / Dashcam safety clip captured').slice(0, 300),
-      hasAudioNote,
-      audioDurationSec: hasAudioNote ? Math.max(1, audioSec) : undefined,
-      coords: driverPos,
-      tripId: activeTripId,
-      riderName,
-      vehiclePlate,
-    });
-    setSummary('');
-    setHasAudioNote(false);
-    setAudioSec(0);
-    setSharedToast(
-      `Incident saved & attached to ${activeTripId ? `trip ${activeTripId}` : 'your shift log'}.`
-    );
-  };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-      <div className="w-full max-w-[390px] sm:max-w-md bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3 max-h-[82dvh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-sky-100 dark:bg-sky-950 text-sky-600 dark:text-sky-400 flex items-center justify-center">
-              <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5" />
+            <div className="w-10 h-10 rounded-xl bg-sky-100 dark:bg-sky-950 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+              <ShieldAlert className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base sm:text-lg font-extrabold text-slate-950 dark:text-white leading-tight">
-                Safety &amp; SOS Toolkit
+              <h3 className="text-lg font-extrabold text-slate-950 dark:text-white">
+                Safety toolkit
               </h3>
-              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
-                SOS share card, dashcam clip &amp; incident log
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                24/7 driver assistance &amp; emergency tools
               </p>
             </div>
           </div>
@@ -987,9 +692,9 @@ export const SafetyModal: React.FC<SafetyModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close safety toolkit"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
+            className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
           >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -999,287 +704,61 @@ export const SafetyModal: React.FC<SafetyModalProps> = ({
           </div>
         )}
 
-        {/* Emergency Share-Location Card */}
-        <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900 space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
+        <div className="space-y-2.5">
+          <button
+            type="button"
+            onClick={() =>
+              setSharedToast('Live GPS route link copied to share with trusted contacts.')
+            }
+            className="w-full p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-3.5 text-left transition-colors"
+          >
+            <Share2 className="w-5 h-5 text-sky-600 dark:text-sky-400 shrink-0" />
             <div>
-              <div className="text-xs font-extrabold text-rose-700 dark:text-rose-300">
-                LIVE SOS LOCATION CARD
+              <div className="text-sm font-bold text-slate-900 dark:text-white">
+                Share live trip status
               </div>
-              <div className="text-[11px] text-rose-800/80 dark:text-rose-300/80 font-mono-num">
-                {driverPos.lat.toFixed(5)}, {driverPos.lng.toFixed(5)} · {vehiclePlate}
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Send your real-time GPS route to family or contacts
               </div>
             </div>
-            <button
-              type="button"
-              onClick={handleShareSosLocation}
-              className="px-3 h-9 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 shrink-0"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>Share SOS</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                setSharedToast('Emergency 999 / 112 dispatch prepared with live vehicle GPS.')
-              }
-              className="h-9 rounded-xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold inline-flex items-center justify-center gap-1.5"
-            >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Call 999 / 112</span>
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setSharedToast('Connected to Bolt 24/7 Priority Safety Support line.')
-              }
-              className="h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-bold inline-flex items-center justify-center gap-1.5"
-            >
-              <PhoneCall className="w-3.5 h-3.5 text-[#25B670]" />
-              <span>Safety Team</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Dashcam / Audio Clip & Incident Log Attached to Trip */}
-        <form
-          onSubmit={handleSubmitIncident}
-          className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700 space-y-2.5"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
-              <Video className="w-4 h-4 text-[#25B670]" />
-              Log Incident / Dashcam Clip
-            </span>
-            {activeTripId && (
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                Trip #{activeTripId}
-              </span>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-1.5">
-            {(['Vehicle / Dashcam', 'Rider Safety', 'Traffic Incident', 'SOS / Emergency'] as const).map(
-              (type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setIncidentType(type)}
-                  className={`px-2 py-1.5 rounded-xl text-[11px] font-bold border transition-colors ${
-                    incidentType === type
-                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-950 border-transparent'
-                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {type}
-                </button>
-              )
-            )}
-          </div>
-
-          <textarea
-            rows={2}
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            placeholder="Describe what happened or note dashcam timestamp..."
-            className="w-full p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#34D186]"
-          />
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={toggleAudioRecording}
-              className={`px-3 h-10 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 border ${
-                isRecording
-                  ? 'bg-rose-600 text-white border-rose-500'
-                  : hasAudioNote
-                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                  : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              {isRecording ? (
-                <>
-                  <Square className="w-3.5 h-3.5 fill-current" />
-                  <span>Stop ({audioSec}s)</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-3.5 h-3.5" />
-                  <span>{hasAudioNote ? `Clip Attached (${audioSec}s)` : 'Audio Note'}</span>
-                </>
-              )}
-            </button>
-
-            <button
-              type="submit"
-              className="flex-1 h-10 rounded-xl bg-[#34D186] hover:bg-[#29BE77] text-slate-950 font-extrabold text-xs"
-            >
-              Attach Incident
-            </button>
-          </div>
-        </form>
-
-        {incidents.length > 0 && (
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-              Recent safety logs ({incidents.length})
-            </div>
-            <div className="space-y-1.5 max-h-28 overflow-y-auto">
-              {incidents.slice(0, 4).map((inc) => (
-                <div
-                  key={inc.id}
-                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 text-[11px] flex items-start justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <div className="font-extrabold text-slate-900 dark:text-white truncate">
-                      {inc.type} {inc.tripId ? `· ${inc.tripId}` : ''}
-                    </div>
-                    <div className="text-slate-500 dark:text-slate-400 truncate">{inc.summary}</div>
-                  </div>
-                  <span className="text-[10px] text-slate-400 shrink-0">{inc.createdAtLabel}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// 6. End-of-Shift Recap & Goal Streak Summary Modal
-export interface ShiftSummaryData {
-  durationSec: number;
-  distanceKm: number;
-  tripsCount: number;
-  grossEarnings: number;
-  expensesTotal: number;
-  netProfit: number;
-  perHour: number;
-  perMile: number;
-  goalTarget: number;
-  goalMet: boolean;
-  streakDays: number;
-  currency: string;
-}
-
-interface EndOfShiftSummaryModalProps {
-  summary: ShiftSummaryData | null;
-  onClose: () => void;
-}
-
-export const EndOfShiftSummaryModal: React.FC<EndOfShiftSummaryModalProps> = ({
-  summary,
-  onClose,
-}) => {
-  if (!summary) return null;
-
-  const hrs = Math.floor(summary.durationSec / 3600);
-  const mins = Math.floor((summary.durationSec % 3600) / 60);
-  const durationLabel = hrs > 0 ? `${hrs}h ${mins}m` : `${Math.max(1, mins)} min`;
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-        <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto sm:hidden" />
-
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-11 h-11 rounded-2xl bg-[#34D186]/15 text-[#25B670] flex items-center justify-center shrink-0">
-              <Award className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-lg font-extrabold text-slate-950 dark:text-white leading-tight">
-                Shift Recap
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {durationLabel} online · {formatMiles(summary.distanceKm)} driven
-              </p>
-            </div>
-          </div>
+          </button>
 
           <button
             type="button"
-            onClick={onClose}
-            aria-label="Close shift summary"
-            className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
+            onClick={() =>
+              setSharedToast('Connected to Bolt 24/7 Priority Safety Support line.')
+            }
+            className="w-full p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-3.5 text-left transition-colors"
           >
-            <X className="w-5 h-5" />
+            <PhoneCall className="w-5 h-5 text-[#25B670] shrink-0" />
+            <div>
+              <div className="text-sm font-bold text-slate-900 dark:text-white">
+                Call Bolt Safety Team
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Direct line for urgent incident support
+              </div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setSharedToast('Emergency 999 / 112 call prepared with your exact GPS coordinates.')
+            }
+            className="w-full p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-950 flex items-center gap-3.5 text-left border border-rose-200/70 dark:border-rose-900 transition-colors"
+          >
+            <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
+            <div>
+              <div className="text-sm font-bold text-rose-700 dark:text-rose-300">
+                Emergency Assistance
+              </div>
+              <div className="text-xs text-rose-600/80 dark:text-rose-400/80">
+                Shares exact vehicle location with emergency dispatch
+              </div>
+            </div>
           </button>
         </div>
-
-        <div className="p-4 rounded-2xl bg-slate-950 text-white space-y-1">
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
-            True Net Shift Profit (After Costs)
-          </div>
-          <div className="text-3xl font-extrabold font-mono-num text-[#34D186]">
-            {summary.currency}
-            {summary.netProfit.toFixed(2)}
-          </div>
-          <div className="text-xs text-slate-300 flex items-center gap-3 pt-1 font-mono-num">
-            <span>
-              Gross: {summary.currency}
-              {summary.grossEarnings.toFixed(2)}
-            </span>
-            <span>·</span>
-            <span className="text-rose-300">
-              Costs: -{summary.currency}
-              {summary.expensesTotal.toFixed(2)}
-            </span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
-            <div className="text-[10px] font-bold text-slate-400 uppercase">Trips</div>
-            <div className="text-base font-extrabold text-slate-950 dark:text-white font-mono-num mt-0.5">
-              {summary.tripsCount}
-            </div>
-          </div>
-          <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
-            <div className="text-[10px] font-bold text-slate-400 uppercase">Hourly</div>
-            <div className="text-base font-extrabold text-slate-950 dark:text-white font-mono-num mt-0.5">
-              {summary.currency}
-              {summary.perHour.toFixed(0)}/h
-            </div>
-          </div>
-          <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
-            <div className="text-[10px] font-bold text-slate-400 uppercase">Per Mile</div>
-            <div className="text-base font-extrabold text-slate-950 dark:text-white font-mono-num mt-0.5">
-              {summary.currency}
-              {summary.perMile.toFixed(2)}/mi
-            </div>
-          </div>
-        </div>
-
-        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            {summary.goalMet ? (
-              <Flame className="w-4 h-4 text-orange-500 shrink-0" />
-            ) : (
-              <TrendingUp className="w-4 h-4 text-[#25B670] shrink-0" />
-            )}
-            <span className="font-bold text-emerald-950 dark:text-emerald-200">
-              {summary.goalMet
-                ? `Daily goal (${summary.currency}${summary.goalTarget}) achieved!`
-                : `Goal progress: ${summary.currency}${summary.grossEarnings.toFixed(0)} / ${summary.currency}${summary.goalTarget}`}
-            </span>
-          </div>
-          <span className="font-extrabold text-[#25B670] whitespace-nowrap">
-            {summary.streakDays}d streak
-          </span>
-        </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full h-12 rounded-2xl bg-[#34D186] hover:bg-[#29BE77] text-slate-950 font-extrabold text-sm"
-        >
-          Done
-        </button>
       </div>
     </div>
   );

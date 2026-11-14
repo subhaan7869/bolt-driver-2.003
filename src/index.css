@@ -15,40 +15,7 @@
     height: 100%;
     font-family: var(--font-sans);
     overscroll-behavior: none;
-    -webkit-tap-highlight-color: transparent;
-    -webkit-text-size-adjust: 100%;
   }
-
-  button,
-  a,
-  [role='button'] {
-    touch-action: manipulation;
-  }
-
-  @media (max-width: 640px) {
-    input,
-    select,
-    textarea {
-      font-size: 16px;
-    }
-  }
-}
-
-.pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-.pt-safe {
-  padding-top: env(safe-area-inset-top, 0px);
-}
-
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
 }
 
 .tabular-nums {
@@ -99,42 +66,3 @@
     animation: none;
   }
 }
-
-/* Night-mode navigation cartography filter on tile layer only (keeps routes/pins vivid) */
-.bolt-dark-tiles .leaflet-tile-pane {
-  filter: invert(92%) hue-rotate(180deg) brightness(93%) contrast(92%) saturate(85%);
-}
-
-/* Print-friendly PDF / Receipt Summary styles */
-.print-only-receipt {
-  display: none;
-}
-
-@media print {
-  @page {
-    size: A4 portrait;
-    margin: 14mm;
-  }
-
-  html,
-  body,
-  #root {
-    height: auto !important;
-    overflow: visible !important;
-    background: #ffffff !important;
-    color: #0f172a !important;
-  }
-
-  .no-print {
-    display: none !important;
-  }
-
-  .print-only-receipt {
-    display: block !important;
-    width: 100% !important;
-    background: #ffffff !important;
-    color: #0f172a !important;
-  }
-}
-
-

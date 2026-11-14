@@ -6,28 +6,26 @@ import {
   CreditCard,
   Gavel,
   Globe,
-  KeyRound,
   Star,
   X,
   Zap,
 } from 'lucide-react';
 import { RideRequest } from '../types/driver';
-import { formatMiles } from '../utils/units';
 
 interface IncomingRequestModalProps {
   request: RideRequest;
+  offerTimeoutSec: number;
   onAccept: (customFare?: number) => void;
   onDecline: () => void;
 }
 
-const REQUEST_ACCEPT_WINDOW_SEC = 25;
-
 export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
   request,
+  offerTimeoutSec,
   onAccept,
   onDecline,
 }) => {
-  const safeTimeout = REQUEST_ACCEPT_WINDOW_SEC;
+  const safeTimeout = Math.max(60, Math.min(300, offerTimeoutSec || 120));
   const [secondsLeft, setSecondsLeft] = useState(safeTimeout);
   const [bidExpanded, setBidExpanded] = useState(request.category === 'Bolt Flex');
   const [bidAmount, setBidAmount] = useState<number>(() => Math.ceil(request.estimatedFare + 2));
@@ -56,6 +54,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
     return () => clearInterval(interval);
   }, [request.id, request.estimatedFare, request.category, safeTimeout, onDecline]);
 
+  // If driver is waiting on a bid or counter-offer and doesn't act, another driver can take it
   useEffect(() => {
     if (bidState !== 'waiting' && bidState !== 'countered') return;
     if (bidState === 'waiting') {
@@ -65,7 +64,9 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           setBidState('accepted');
           setTimeout(() => onAccept(bidAmount), 650);
         } else if (ratio <= 1.45) {
-          const counter = Number(((request.estimatedFare + bidAmount) / 2).toFixed(2));
+          const counter = Number(
+            ((request.estimatedFare + bidAmount) / 2).toFixed(2)
+          );
           setCustomerCounterFare(counter);
           setBidState('countered');
         } else {
@@ -84,18 +85,22 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
   }, [bidState, bidAmount, request.estimatedFare, onAccept]);
 
   const progressPct = (secondsLeft / safeTimeout) * 100;
+  const mins = Math.floor(secondsLeft / 60)
+    .toString()
+    .padStart(2, '0');
+  const secs = (secondsLeft % 60).toString().padStart(2, '0');
 
   return (
-    <div className="w-full bg-white dark:bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden max-h-[76dvh] lg:max-h-none flex flex-col">
-      <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 shrink-0">
+    <div className="w-full bg-white dark:bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden">
+      {/* Countdown Progress Strip (1 to 5 minutes) */}
+      <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800">
         <div
           className="h-full bg-[#34D186] transition-all duration-1000 ease-linear"
           style={{ width: `${progressPct}%` }}
         />
       </div>
 
-      <div className="px-4 pt-2.5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-5 space-y-3.5 overflow-y-auto">
-        <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto lg:hidden" />
+      <div className="p-5 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300">
@@ -114,12 +119,6 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
                 <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400">
                   <Globe className="w-3 h-3" />
                   Out of City
-                </span>
-              )}
-              {request.pickupPin && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-[#25B670]">
-                  <KeyRound className="w-3 h-3" />
-                  PIN
                 </span>
               )}
               <span aria-hidden="true">·</span>
@@ -162,36 +161,24 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           </button>
         </div>
 
-        {/* Route Timeline (Pickup -> Optional Stops -> Dropoff) */}
-        <div className="relative pl-6 space-y-3 py-1">
+        {/* Route Timeline */}
+        <div className="relative pl-6 space-y-3.5 py-1">
           <div className="absolute left-[7px] top-3 bottom-3 w-0.5 bg-slate-200 dark:bg-slate-700" />
 
           <div className="relative">
             <span className="absolute -left-6 top-1 w-3.5 h-3.5 rounded-full bg-[#34D186] ring-4 ring-white dark:ring-slate-900" />
             <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
-              {request.pickupEtaMin} min ({formatMiles(request.pickupDistanceKm)}) away
+              {request.pickupEtaMin} min ({request.pickupDistanceKm} km) away
             </div>
             <div className="text-[15px] font-bold text-slate-900 dark:text-white truncate">
               {request.pickupAddress}
             </div>
           </div>
 
-          {request.stops?.map((stop, idx) => (
-            <div key={stop.id} className="relative">
-              <span className="absolute -left-6 top-1 w-3.5 h-3.5 rounded-full bg-amber-400 ring-4 ring-white dark:ring-slate-900" />
-              <div className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
-                Intermediate Stop {idx + 1}
-              </div>
-              <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
-                {stop.address}
-              </div>
-            </div>
-          ))}
-
           <div className="relative">
             <span className="absolute -left-6 top-1 w-3.5 h-3.5 rounded-[3px] bg-slate-900 dark:bg-white ring-4 ring-white dark:ring-slate-900" />
             <div className="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums">
-              Trip: {request.tripEtaMin} min ({formatMiles(request.tripDistanceKm)})
+              Trip: {request.tripEtaMin} min ({request.tripDistanceKm} km)
             </div>
             <div className="text-[15px] font-semibold text-slate-800 dark:text-slate-200 truncate">
               {request.dropoffAddress}
@@ -293,12 +280,12 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                    <div className="flex items-center gap-2">
                       <div className="flex items-center gap-1 bg-white dark:bg-slate-900 rounded-xl p-1 border border-slate-200 dark:border-slate-700">
                         <button
                           type="button"
                           onClick={() => setBidAmount((b) => Math.max(5, b - 1))}
-                          className="w-10 h-10 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
+                          className="w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
                         >
                           -1
                         </button>
@@ -309,14 +296,14 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
                         <button
                           type="button"
                           onClick={() => setBidAmount((b) => b + 1)}
-                          className="w-10 h-10 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
+                          className="w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
                         >
                           +1
                         </button>
                         <button
                           type="button"
                           onClick={() => setBidAmount((b) => b + 5)}
-                          className="w-10 h-10 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
+                          className="w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
                         >
                           +5
                         </button>
@@ -325,7 +312,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setBidState('waiting')}
-                        className="flex-1 min-w-[110px] h-12 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-extrabold text-xs"
+                        className="flex-1 h-10 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-extrabold text-xs"
                       >
                         Send Bid
                       </button>
@@ -337,6 +324,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           </div>
         )}
 
+        {/* Accept Action */}
         {bidState !== 'taken_by_other' && bidState !== 'accepted' && (
           <button
             type="button"
@@ -345,7 +333,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           >
             <span>Accept Ride</span>
             <span className="font-mono-num text-sm bg-slate-950/15 px-2.5 py-1 rounded-lg">
-              {secondsLeft}s
+              {mins}:{secs}
             </span>
           </button>
         )}

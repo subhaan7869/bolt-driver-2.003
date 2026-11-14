@@ -8,7 +8,7 @@ export type DriverStatus =
   | 'IN_PROGRESS'
   | 'TRIP_COMPLETED';
 
-export type AppTab = 'map' | 'schedule' | 'earnings' | 'activity' | 'account' | 'insurance';
+export type AppTab = 'map' | 'earnings' | 'activity' | 'account' | 'insurance';
 
 export type RideCategory =
   | 'Bolt'
@@ -27,14 +27,6 @@ export type InsuranceCoverage = 'taxi' | 'food' | 'all';
 export interface LatLng {
   lat: number;
   lng: number;
-}
-
-export interface TripStop {
-  id: string;
-  address: string;
-  area: string;
-  coords: LatLng;
-  completed?: boolean;
 }
 
 export interface CityPreset {
@@ -57,7 +49,6 @@ export interface CityPreset {
     area: string;
     lat: number;
     lng: number;
-    hubType?: 'airport' | 'stadium' | 'station';
   }[];
 }
 
@@ -70,30 +61,14 @@ export interface SurgeZone {
   demandLevel: 'High' | 'Peak';
 }
 
-export interface DistrictDemandZone {
-  id: string;
-  district: string;
-  center: LatLng;
-  radiusMeters: number;
-  hourlyScores: number[];
-  peakWindow: string;
-  busySoonLabel: string;
-  forecastOffsetLabel: string;
-  forecastMultiplier: number;
-}
-
 export interface TaxiRank {
   id: string;
   name: string;
   area: string;
   center: LatLng;
   queueCount: number;
-  totalDrivers: number;
-  totalQueue?: number;
   estWaitMin: number;
   avgFareBoost: string;
-  hubType: 'airport' | 'stadium' | 'station';
-  geofenceRadiusMeters: number;
 }
 
 export interface ManeuverStep {
@@ -118,11 +93,6 @@ export interface RideRequest {
   dropoffCoords: LatLng;
   dropoffAddress: string;
   dropoffArea: string;
-  stops?: TripStop[];
-  pickupPin?: string;
-  requiresPin?: boolean;
-  waitFeePerMin?: number;
-  waitFeeTotal?: number;
   pickupDistanceKm: number;
   pickupEtaMin: number;
   tripDistanceKm: number;
@@ -132,7 +102,6 @@ export interface RideRequest {
   distanceFare: number;
   timeFare: number;
   surgeBonus: number;
-  waitFee?: number;
   currency: string;
   toPickupRoute: LatLng[];
   toDropoffRoute: LatLng[];
@@ -142,61 +111,6 @@ export interface RideRequest {
   isOutOfCity?: boolean;
   willRiderReply?: boolean;
   note?: string;
-  tollOrAirportFee?: number;
-  tollLabel?: string;
-}
-
-export interface CleanAirZone {
-  id: string;
-  name: string;
-  zoneType: 'Congestion' | 'ULEZ' | 'Clean Air';
-  center: LatLng;
-  radiusMeters: number;
-  dailyFee: number;
-  evExempt: boolean;
-}
-
-export interface SpeedCamera {
-  id: string;
-  name: string;
-  limitMph: number;
-  coords: LatLng;
-  cameraType: 'Fixed' | 'Average' | 'Red Light';
-}
-
-export interface WeatherForecast {
-  tempC: number;
-  condition: string;
-  isRaining: boolean;
-  windKmh: number;
-  rainSurgeBoost: number;
-  eventSurgeNote?: string;
-}
-
-export interface ScheduledRide {
-  id: string;
-  riderName: string;
-  riderRating: number;
-  category: RideCategory;
-  pickupAddress: string;
-  pickupArea: string;
-  dropoffAddress: string;
-  dropoffArea: string;
-  pickupCoords: LatLng;
-  dropoffCoords: LatLng;
-  pickupTimeIso: string;
-  pickupTimeLabel: string;
-  tag: string;
-  tripDistanceKm: number;
-  tripEtaMin: number;
-  estimatedFare: number;
-  currency: string;
-  paymentMethod: PaymentMethod;
-  claimed: boolean;
-  pickupPin?: string;
-  note?: string;
-  isAirport?: boolean;
-  flightNumber?: string;
 }
 
 export interface BidJobOffer {
@@ -238,66 +152,16 @@ export interface CompletedTrip {
   paymentMethod: PaymentMethod;
   pickupAddress: string;
   dropoffAddress: string;
-  stopsCount?: number;
-  pickupPinVerified?: boolean;
   completedAt: string;
   dayKey: string;
   distanceKm: number;
   durationMin: number;
-  baseFare: number;
-  distanceFare: number;
-  timeFare: number;
-  waitFee: number;
-  tollFee?: number;
-  tollLabel?: string;
-  surgeMultiplier?: number;
   grossFare: number;
   boltCommission: number;
   surgeBonus: number;
   tip: number;
   netEarnings: number;
   riderRatingGiven?: number;
-  incidentNote?: string;
-  hasAudioClip?: boolean;
-  lostItemReport?: {
-    item: string;
-    reportedAt: string;
-    returnFeeCredited?: number;
-  };
-  cleaningFeeClaim?: {
-    amount: number;
-    reason: string;
-    status: 'submitted' | 'approved';
-    submittedAt: string;
-  };
-}
-
-export type ExpenseCategory = 'EV Charging' | 'Fuel' | 'Car Wash' | 'Toll' | 'Parking';
-
-export interface ExpenseRecord {
-  id: string;
-  category: ExpenseCategory;
-  amount: number;
-  note?: string;
-  dateIso: string;
-  dayKey: string;
-  createdAtMs: number;
-}
-
-export type DriverExpense = ExpenseRecord;
-
-export interface IncidentReport {
-  id: string;
-  tripId?: string;
-  riderName?: string;
-  type: 'Vehicle / Dashcam' | 'Rider Safety' | 'Traffic Incident' | 'SOS / Emergency';
-  summary: string;
-  hasAudioNote: boolean;
-  audioDurationSec?: number;
-  coords: LatLng;
-  vehiclePlate: string;
-  createdAtLabel: string;
-  createdAtMs: number;
 }
 
 export interface ChatMessage {
@@ -332,8 +196,6 @@ export interface DriverProfile {
   additionalDrivers: string[];
   documentsUploaded: boolean;
   faceVerified: boolean;
-  activeVehicleId?: string;
-  settings?: Partial<DriverSettings>;
 }
 
 export interface Vehicle {
@@ -346,21 +208,6 @@ export interface Vehicle {
   categories: RideCategory[];
   imageUrl: string;
   isActive: boolean;
-  rangeKm: number;
-  maxRangeKm: number;
-  odometerKm: number;
-  nextServiceKm: number;
-  tyreCheckKm: number;
-}
-
-export interface ChargingStation {
-  id: string;
-  name: string;
-  type: 'Ultra-Rapid EV' | 'Fuel & EV Hub';
-  distanceKm: number;
-  priceLabel: string;
-  powerKw?: number;
-  coords: LatLng;
 }
 
 export interface DriverDocument {
@@ -384,13 +231,11 @@ export interface CampaignQuest {
 
 export interface DriverSettings {
   darkMode: boolean;
-  autoNightMode?: boolean;
   soundAlerts: boolean;
-  voiceGuidance?: boolean;
   autoAccept: boolean;
   acceptCash: boolean;
   allowBidOffers: boolean;
-  dispatchWaitSec: 0 | 60 | 120 | 180 | 300;
+  offerTimeoutSec: 60 | 120 | 180 | 300;
   minFareFilter: number;
   maxPickupKm: number;
   minRiderRating: number;
@@ -398,9 +243,6 @@ export interface DriverSettings {
   backgroundRefresh: boolean;
   refreshIntervalSec: 15 | 30 | 60;
   enabledCategories: RideCategory[];
-  dailyGoal: number;
-  headingUpNav: boolean;
-  showHeatmap: boolean;
   destinationFilter: {
     enabled: boolean;
     targetCoords: LatLng | null;

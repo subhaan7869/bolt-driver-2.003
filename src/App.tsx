@@ -5,7 +5,6 @@ import {
   Activity,
   AlertTriangle,
   Bell,
-  CalendarClock,
   Car,
   Eye,
   EyeOff,
@@ -23,25 +22,18 @@ import { AccountCreationModal } from './components/AccountCreationModal';
 import { AccountView } from './components/AccountView';
 import { ActivityView } from './components/ActivityView';
 import { BidJobsModal } from './components/BidJobsModal';
-import { BootScreen } from './components/BootScreen';
 import { EarningsView } from './components/EarningsView';
 import { IncomingRequestModal } from './components/IncomingRequestModal';
 import { InsuranceRenewalChat, InsuranceView } from './components/InsuranceView';
-import { OfflineIndicator } from './components/OfflineIndicator';
 import {
   CancelRideModal,
   DestinationModal,
-  EndOfShiftSummaryModal,
   PreferencesModal,
   RiderChatModal,
   SafetyModal,
-  ShiftSummaryData,
 } from './components/Overlays';
-import { PermissionsPromptModal } from './components/PermissionsPromptModal';
-import { PWAInstallButton } from './components/PWAInstallButton';
 import { TripPanels } from './components/TripPanels';
 import { WorldDriverMap } from './components/WorldDriverMap';
-import { ScheduledRidesView } from './components/ScheduledRidesView';
 import {
   INITIAL_CAMPAIGNS,
   INITIAL_DOCUMENTS,
@@ -49,22 +41,15 @@ import {
   INITIAL_VEHICLES,
   WEEKLY_EARNINGS_SERIES,
   calculateBearing,
-  exactDistanceKm,
-  fetchLiveWeatherAndEvents,
   fetchRoadRoute,
   generateBidJobsNear,
-  generateChargingStationsNear,
-  generateCleanAirZonesNear,
-  generateDistrictDemandNear,
   generateLiveRideRequest,
   generateRanksNear,
-  generateScheduledRidesNear,
-  generateSpeedCamerasNear,
   generateSurgeZonesNear,
   getCityById,
   getFutureIsoDate,
   getTodayDayKey,
-  interpolateLatLng,
+  haversineKm,
 } from './data/worldMapData';
 import {
   OperationType,
@@ -78,50 +63,34 @@ import {
   AppTab,
   BidJobOffer,
   CampaignQuest,
-  ChargingStation,
   ChatMessage,
-  CleanAirZone,
   CompletedTrip,
-  DistrictDemandZone,
   DriverDocument,
   DriverProfile,
   DriverSettings,
   DriverStatus,
-  ExpenseRecord,
   InAppToast,
-  IncidentReport,
   InsuranceCoverage,
   LatLng,
   ManeuverStep,
   RideRequest,
-  ScheduledRide,
-  SpeedCamera,
   SurgeZone,
   TaxiRank,
   Vehicle,
-  WeatherForecast,
 } from './types/driver';
 import {
   NotificationPermissionState,
   getNotificationPermission,
   requestPushPermission,
 } from './utils/notifications';
-import {
-  AppPermissionsSnapshot,
-  queryAllPermissions,
-  requestAllDevicePermissions,
-} from './utils/permissions';
 import { releaseScreenWakeLock, requestScreenWakeLock } from './utils/pwaDevice';
 import {
   playArrivalChime,
   playBidAcceptedTone,
   playHyperSound,
   playNavigationTurnPing,
-  playSpeedCameraAlert,
   playSuccessTone,
-  speakNavigationInstruction,
 } from './utils/sound';
-import { formatWholeMiles, kmhToMph } from './utils/units';
 
 const DEFAULT_PROFILE: DriverProfile = {
   id: 'drv-default',
@@ -147,166 +116,6 @@ const DEFAULT_PROFILE: DriverProfile = {
   additionalDrivers: [],
   documentsUploaded: true,
   faceVerified: true,
-};
-
-const DEFAULT_SETTINGS: DriverSettings = {
-  darkMode: false,
-  autoNightMode: false,
-  soundAlerts: true,
-  voiceGuidance: true,
-  autoAccept: false,
-  acceptCash: true,
-  allowBidOffers: true,
-  dispatchWaitSec: 0,
-  minFareFilter: 0,
-  maxPickupKm: 6,
-  minRiderRating: 0,
-  pushNotifications: false,
-  backgroundRefresh: true,
-  refreshIntervalSec: 30,
-  enabledCategories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City'],
-  dailyGoal: 150,
-  headingUpNav: false,
-  showHeatmap: false,
-  destinationFilter: {
-    enabled: false,
-    targetCoords: null,
-    targetLabel: null,
-  },
-};
-
-const resolveDispatchWaitSeconds = (settingSec: 0 | 60 | 120 | 180 | 300): number =>
-  settingSec === 0 ? 60 + Math.floor(Math.random() * 241) : settingSec;
-
-const SETTINGS_STORAGE_PREFIX = 'bolt_driver_settings_v1_';
-const VEHICLE_STORAGE_PREFIX = 'bolt_driver_vehicle_v1_';
-const BOOT_PERMS_DONE_KEY = 'bolt_boot_permissions_done_v1';
-
-const getUserScopeKey = (
-  p: Pick<DriverProfile, 'uid' | 'id' | 'email'>,
-  fUser?: FirebaseUser | null
-): string => {
-  const raw = fUser?.uid || p.uid || p.email || p.id || 'default';
-  return raw.toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
-};
-
-const sanitizeSettingsForFirestore = (s: DriverSettings): DriverSettings => {
-  const validDispatch = ([0, 60, 120, 180, 300] as const).includes(s.dispatchWaitSec)
-    ? s.dispatchWaitSec
-    : 0;
-  const validRefresh = ([15, 30, 60] as const).includes(s.refreshIntervalSec)
-    ? s.refreshIntervalSec
-    : 30;
-  const cleanCategories = Array.isArray(s.enabledCategories)
-    ? s.enabledCategories.filter((c): c is typeof s.enabledCategories[number] => typeof c === 'string' && c.length > 0).slice(0, 10)
-    : [];
-
-  return {
-    darkMode: Boolean(s.darkMode),
-    soundAlerts: Boolean(s.soundAlerts),
-    autoAccept: Boolean(s.autoAccept),
-    acceptCash: Boolean(s.acceptCash),
-    allowBidOffers: Boolean(s.allowBidOffers),
-    dispatchWaitSec: validDispatch,
-    minFareFilter: Math.min(1000, Math.max(0, Number(s.minFareFilter) || 0)),
-    maxPickupKm: Math.min(100, Math.max(1, Number(s.maxPickupKm) || 6)),
-    minRiderRating: Math.min(5, Math.max(0, Number(s.minRiderRating) || 0)),
-    pushNotifications: Boolean(s.pushNotifications),
-    backgroundRefresh: Boolean(s.backgroundRefresh),
-    refreshIntervalSec: validRefresh,
-    enabledCategories: cleanCategories.length > 0 ? cleanCategories : ['Bolt'],
-    dailyGoal: Math.min(2000, Math.max(20, Number(s.dailyGoal) || 150)),
-    headingUpNav: Boolean(s.headingUpNav),
-    showHeatmap: Boolean(s.showHeatmap),
-    destinationFilter: {
-      enabled: Boolean(s.destinationFilter?.enabled),
-      targetCoords:
-        s.destinationFilter?.targetCoords &&
-        typeof s.destinationFilter.targetCoords.lat === 'number' &&
-        typeof s.destinationFilter.targetCoords.lng === 'number'
-          ? {
-              lat: Number(s.destinationFilter.targetCoords.lat),
-              lng: Number(s.destinationFilter.targetCoords.lng),
-            }
-          : null,
-      targetLabel:
-        typeof s.destinationFilter?.targetLabel === 'string' &&
-        s.destinationFilter.targetLabel.trim().length > 0
-          ? s.destinationFilter.targetLabel.slice(0, 120)
-          : null,
-    },
-  };
-};
-
-const mergeLoadedSettings = (saved?: Partial<DriverSettings> | null): DriverSettings => {
-  const notifGranted = getNotificationPermission() === 'granted';
-  if (!saved) {
-    return {
-      ...DEFAULT_SETTINGS,
-      pushNotifications: notifGranted,
-    };
-  }
-  const base = sanitizeSettingsForFirestore({
-    ...DEFAULT_SETTINGS,
-    ...saved,
-    pushNotifications:
-      saved.pushNotifications !== undefined ? Boolean(saved.pushNotifications) : notifGranted,
-    destinationFilter: {
-      ...DEFAULT_SETTINGS.destinationFilter,
-      ...(saved.destinationFilter || {}),
-    },
-  });
-  return {
-    ...base,
-    autoNightMode:
-      saved.autoNightMode !== undefined ? Boolean(saved.autoNightMode) : DEFAULT_SETTINGS.autoNightMode,
-    voiceGuidance:
-      saved.voiceGuidance !== undefined ? Boolean(saved.voiceGuidance) : DEFAULT_SETTINGS.voiceGuidance,
-  };
-};
-
-const loadUserSettings = (scopeKey: string): DriverSettings => {
-  try {
-    const raw = localStorage.getItem(`${SETTINGS_STORAGE_PREFIX}${scopeKey}`);
-    if (raw) {
-      return mergeLoadedSettings(JSON.parse(raw) as Partial<DriverSettings>);
-    }
-  } catch {
-    // Ignore storage errors
-  }
-  return mergeLoadedSettings(null);
-};
-
-const saveUserSettings = (scopeKey: string, s: DriverSettings): void => {
-  try {
-    const base = sanitizeSettingsForFirestore(s);
-    localStorage.setItem(
-      `${SETTINGS_STORAGE_PREFIX}${scopeKey}`,
-      JSON.stringify({
-        ...base,
-        autoNightMode: Boolean(s.autoNightMode),
-        voiceGuidance: s.voiceGuidance !== false,
-      })
-    );
-  } catch {
-    // Ignore storage errors
-  }
-};
-
-const loadUserVehicleId = (scopeKey: string): string | null => {
-  try {
-    return localStorage.getItem(`${VEHICLE_STORAGE_PREFIX}${scopeKey}`);
-  } catch {
-    return null;
-  }
-};
-
-const saveUserVehicleId = (scopeKey: string, vehicleId: string): void => {
-  try {
-    localStorage.setItem(`${VEHICLE_STORAGE_PREFIX}${scopeKey}`, vehicleId);
-  } catch {
-    // Ignore storage errors
-  }
 };
 
 export default function App() {
@@ -353,39 +162,6 @@ export default function App() {
   );
   const [activeRankId, setActiveRankId] = useState<string | null>(null);
   const [rankQueuePos, setRankQueuePos] = useState<number | null>(null);
-  const [districtDemandZones, setDistrictDemandZones] = useState<DistrictDemandZone[]>(() =>
-    generateDistrictDemandNear(initialCity.center, initialCity.id)
-  );
-  const [cleanAirZones, setCleanAirZones] = useState<CleanAirZone[]>(() =>
-    generateCleanAirZonesNear(initialCity.center, initialCity.id)
-  );
-  const [speedCameras, setSpeedCameras] = useState<SpeedCamera[]>(() =>
-    generateSpeedCamerasNear(initialCity.center, initialCity.id)
-  );
-  const [chargingStations, setChargingStations] = useState<ChargingStation[]>(() =>
-    generateChargingStationsNear(initialCity.center, initialCity.id)
-  );
-  const [weatherForecast, setWeatherForecast] = useState<WeatherForecast | null>(null);
-  const [activePitStop, setActivePitStop] = useState<ChargingStation | null>(null);
-  const [activePitStopRoute, setActivePitStopRoute] = useState<LatLng[]>([]);
-  const [loggedZoneIdsToday, setLoggedZoneIdsToday] = useState<string[]>([]);
-  const [scheduledRides, setScheduledRides] = useState<ScheduledRide[]>(() =>
-    generateScheduledRidesNear(initialCity.center, initialCity.id)
-  );
-  const [incidents, setIncidents] = useState<IncidentReport[]>([]);
-  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
-
-  // Shift Tracking, Queued Next Trip & Stealth Recording
-  const [shiftElapsedSec, setShiftElapsedSec] = useState<number>(0);
-  const [shiftDistanceKm, setShiftDistanceKm] = useState<number>(0);
-  const [shiftSummary, setShiftSummary] = useState<ShiftSummaryData | null>(null);
-  const [queuedOffer, setQueuedOffer] = useState<RideRequest | null>(null);
-  const [queuedAccepted, setQueuedAccepted] = useState<boolean>(false);
-  const [stealthRecordingActive, setStealthRecordingActive] = useState<boolean>(false);
-  const queuedGeneratedForTripRef = useRef<string | null>(null);
-  const breakRemindedRef = useRef<boolean>(false);
-  const lastAlertedCameraRef = useRef<string | null>(null);
-  const lastSpokenManeuverRef = useRef<string>('');
 
   // Active request & routing
   const [activeRequest, setActiveRequest] = useState<RideRequest | null>(null);
@@ -393,9 +169,7 @@ export default function App() {
   const [previewDropoffRoute, setPreviewDropoffRoute] = useState<LatLng[]>([]);
   const [activeManeuvers, setActiveManeuvers] = useState<ManeuverStep[]>([]);
   const [currentManeuverIndex, setCurrentManeuverIndex] = useState<number>(0);
-  const [currentRouteIndex, setCurrentRouteIndex] = useState<number>(0);
-  const [navSpeedKmh, setNavSpeedKmh] = useState<number>(38);
-  const routeProgressRef = useRef<{ index: number; progress: number }>({ index: 0, progress: 0 });
+  const routeIndexRef = useRef<number>(0);
   const gpsWatchIdRef = useRef<number | null>(null);
 
   // Bid Marketplace (Bolt Flex)
@@ -414,13 +188,7 @@ export default function App() {
   const [trips, setTrips] = useState<CompletedTrip[]>(INITIAL_TRIPS);
   const [weeklySeries, setWeeklySeries] = useState(WEEKLY_EARNINGS_SERIES);
   const [campaigns, setCampaigns] = useState<CampaignQuest[]>(INITIAL_CAMPAIGNS);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
-    const savedVehId = loadUserVehicleId(getUserScopeKey(profile));
-    if (savedVehId && INITIAL_VEHICLES.some((v) => v.id === savedVehId)) {
-      return INITIAL_VEHICLES.map((v) => ({ ...v, isActive: v.id === savedVehId }));
-    }
-    return INITIAL_VEHICLES;
-  });
+  const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);
   const [documents, setDocuments] = useState<DriverDocument[]>(INITIAL_DOCUMENTS);
   const [acceptanceRate, setAcceptanceRate] = useState<number>(100);
   const [completionRate, setCompletionRate] = useState<number>(100);
@@ -438,26 +206,15 @@ export default function App() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showSafetyModal, setShowSafetyModal] = useState(false);
   const [showAccountCreation, setShowAccountCreation] = useState(false);
-  const [showBootScreen, setShowBootScreen] = useState(true);
-  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [callBanner, setCallBanner] = useState<string | null>(null);
 
-  // Notifications & Device Permissions
+  // Notifications & Toasts
   const [toasts, setToasts] = useState<InAppToast[]>([]);
   const [notificationsLog, setNotificationsLog] = useState<string[]>([]);
   const lastNoteRef = useRef<{ title: string; body: string; time: number } | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>(
     () => getNotificationPermission()
   );
-  const [permissionsSnapshot, setPermissionsSnapshot] = useState<AppPermissionsSnapshot>(() => {
-    const perm = getNotificationPermission();
-    return {
-      location: typeof navigator !== 'undefined' && 'geolocation' in navigator ? 'prompt' : 'unsupported',
-      microphone: typeof navigator !== 'undefined' && navigator.mediaDevices ? 'prompt' : 'unsupported',
-      notifications: perm === 'default' ? 'prompt' : perm,
-      wakeLockSupported: typeof navigator !== 'undefined' && 'wakeLock' in navigator,
-    };
-  });
   const [lastBackgroundSync, setLastBackgroundSync] = useState<string>(() => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now
@@ -471,19 +228,28 @@ export default function App() {
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [awaitingRiderReply, setAwaitingRiderReply] = useState(false);
   const [riderNoResponseSec, setRiderNoResponseSec] = useState(0);
-  // Driver Settings (Remembered per user)
-  const [settings, setSettings] = useState<DriverSettings>(() =>
-    loadUserSettings(getUserScopeKey(profile))
-  );
-  const [nextRequestWaitLeft, setNextRequestWaitLeft] = useState<number>(() =>
-    resolveDispatchWaitSeconds(loadUserSettings(getUserScopeKey(profile)).dispatchWaitSec)
-  );
-  const dispatchTriggeredRef = useRef<boolean>(false);
-  const activeUserScopeKey = useMemo(
-    () => getUserScopeKey(profile, firebaseUser),
-    [profile.uid, profile.id, profile.email, firebaseUser]
-  );
-  const lastSavedScopeRef = useRef<string>(activeUserScopeKey);
+
+  // Driver Settings
+  const [settings, setSettings] = useState<DriverSettings>({
+    darkMode: false,
+    soundAlerts: true,
+    autoAccept: false,
+    acceptCash: true,
+    allowBidOffers: true,
+    offerTimeoutSec: 120,
+    minFareFilter: 0,
+    maxPickupKm: 6,
+    minRiderRating: 0,
+    pushNotifications: getNotificationPermission() === 'granted',
+    backgroundRefresh: true,
+    refreshIntervalSec: 30,
+    enabledCategories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City'],
+    destinationFilter: {
+      enabled: false,
+      targetCoords: null,
+      targetLabel: null,
+    },
+  });
 
   const activeCity = getCityById(currentCityId);
   const activeVehicle = vehicles.find((v) => v.isActive) || vehicles[0];
@@ -530,48 +296,6 @@ export default function App() {
     []
   );
 
-  const handleSaveIncident = useCallback(
-    (inc: Omit<IncidentReport, 'id' | 'createdAtLabel' | 'createdAtMs'>) => {
-      const now = new Date();
-      const newInc: IncidentReport = {
-        ...inc,
-        id: `INC-${Date.now()}`,
-        createdAtLabel: `${now.getHours().toString().padStart(2, '0')}:${now
-          .getMinutes()
-          .toString()
-          .padStart(2, '0')}`,
-        createdAtMs: now.getTime(),
-      };
-      setIncidents((prev) => [newInc, ...prev]);
-      addToast('Safety Incident Logged', 'Incident recorded and attached to shift log.', 'success');
-    },
-    [addToast]
-  );
-
-  const handleAddExpense = useCallback(
-    (exp: Omit<ExpenseRecord, 'id' | 'dateIso' | 'dayKey' | 'createdAtMs'>) => {
-      const now = new Date();
-      const newExp: ExpenseRecord = {
-        ...exp,
-        id: `EXP-${Date.now()}`,
-        dateIso: now.toISOString(),
-        dayKey: getTodayDayKey(),
-        createdAtMs: now.getTime(),
-      };
-      setExpenses((prev) => [newExp, ...prev]);
-      addToast('Expense Logged', `${exp.category} (${currency}${exp.amount.toFixed(2)}) added to tax summary`, 'success');
-    },
-    [addToast, currency]
-  );
-
-  const handleDeleteExpense = useCallback(
-    (id: string) => {
-      setExpenses((prev) => prev.filter((e) => e.id !== id));
-      addToast('Expense Removed', 'Expense record deleted', 'info');
-    },
-    [addToast]
-  );
-
   // Unified In-App + Browser/PWA Notification Dispatcher (matches exact spec)
   const sendNotification = useCallback(
     (
@@ -597,7 +321,7 @@ export default function App() {
               registration
                 .showNotification(title, {
                   body,
-                  icon: '/assets/aistudio/image_adf30014.png',
+                  icon: 'https://www.gstatic.com/images/branding/product/1x/googleg_48dp.png',
                   vibrate: [200, 100, 200],
                   tag: title,
                   renotify: true,
@@ -636,63 +360,16 @@ export default function App() {
     else root.classList.remove('dark');
   }, [settings.darkMode]);
 
-  // Auto Night Mode by local dusk/dawn (18:00 - 06:00)
-  useEffect(() => {
-    if (!settings.autoNightMode) return;
-    const syncDusk = () => {
-      const hour = new Date().getHours();
-      const shouldBeDark = hour >= 18 || hour < 6;
-      setSettings((s) => (s.darkMode === shouldBeDark ? s : { ...s, darkMode: shouldBeDark }));
-    };
-    syncDusk();
-    const timer = setInterval(syncDusk, 60000);
-    return () => clearInterval(timer);
-  }, [settings.autoNightMode]);
-
-  // Live Weather & Event Surge Forecast
-  useEffect(() => {
-    let cancelled = false;
-    fetchLiveWeatherAndEvents(driverPos, currentCityId).then((forecast) => {
-      if (!cancelled) setWeatherForecast(forecast);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentCityId]);
-
-  // Shift Driving Hours Tracker & 5h30m Compliance Reminder
-  useEffect(() => {
-    if (status === 'OFFLINE' || status === 'ON_BREAK') return;
-    const timer = setInterval(() => {
-      setShiftElapsedSec((prev) => {
-        const next = prev + 1;
-        if (next >= 19800 && !breakRemindedRef.current) {
-          breakRemindedRef.current = true;
-          sendNotification(
-            'Break Recommended (5h 30m)',
-            'You have been driving continuously for 5h 30m. Consider taking a rest break.',
-            'alert'
-          );
-        }
-        return next;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [status, sendNotification]);
-
-  // Register firebase-messaging-sw.js & query initial permission statuses on mount
+  // Register firebase-messaging-sw.js on mount
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(() => {});
     }
-    queryAllPermissions()
-      .then((snap) => setPermissionsSnapshot(snap))
-      .catch(() => {});
   }, []);
 
   const lastGpsSyncRef = useRef<number>(0);
 
-  // 1. Firebase Auth & Load User Profile + Remembered Settings from Firestore
+  // 1. Firebase Auth & Load User Profile from Firestore
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (fUser) => {
       setFirebaseUser(fUser);
@@ -701,14 +378,6 @@ export default function App() {
           .then((userDoc) => {
             if (userDoc.exists()) {
               const userData = { ...userDoc.data(), uid: fUser.uid } as DriverProfile;
-              const nextScope = getUserScopeKey(userData, fUser);
-              const localSettings = loadUserSettings(nextScope);
-              const restoredSettings = mergeLoadedSettings({
-                ...localSettings,
-                ...(userData.settings || {}),
-              });
-              const restoredVehicleId = userData.activeVehicleId || loadUserVehicleId(nextScope);
-
               setProfile((prev) => ({
                 ...prev,
                 ...userData,
@@ -718,19 +387,6 @@ export default function App() {
                   ...(userData.documentExpiries || {}),
                 },
               }));
-              setSettings(restoredSettings);
-              setNextRequestWaitLeft(resolveDispatchWaitSeconds(restoredSettings.dispatchWaitSec));
-              saveUserSettings(nextScope, restoredSettings);
-
-              if (restoredVehicleId) {
-                setVehicles((prev) =>
-                  prev.some((v) => v.id === restoredVehicleId)
-                    ? prev.map((v) => ({ ...v, isActive: v.id === restoredVehicleId }))
-                    : prev
-                );
-                saveUserVehicleId(nextScope, restoredVehicleId);
-              }
-
               if (userData.cityId) {
                 setCurrentCityId(userData.cityId);
               }
@@ -785,39 +441,17 @@ export default function App() {
               additionalDrivers: profile.additionalDrivers.slice(0, 10),
               documentsUploaded: profile.documentsUploaded,
               faceVerified: profile.faceVerified,
-              activeVehicleId: activeVehicle.id,
-              settings: sanitizeSettingsForFirestore(settings),
             },
             { merge: true }
           );
           initializeFCMToken(firebaseUser.uid);
         } catch (error) {
-          if (typeof navigator === 'undefined' || navigator.onLine) {
-            handleFirestoreError(error, OperationType.WRITE, `users/${firebaseUser.uid}`);
-          }
+          handleFirestoreError(error, OperationType.WRITE, `users/${firebaseUser.uid}`);
         }
       };
       syncProfile();
     }
   }, [profile, firebaseUser, isProfileLoaded]);
-
-  // 2b. Debounced sync of per-user settings & activeVehicleId to Firestore
-  useEffect(() => {
-    if (!firebaseUser || !isProfileLoaded) return;
-    const timer = setTimeout(async () => {
-      try {
-        await updateDoc(doc(db, 'users', firebaseUser.uid), {
-          activeVehicleId: activeVehicle.id,
-          settings: sanitizeSettingsForFirestore(settings),
-        });
-      } catch (error) {
-        if (typeof navigator === 'undefined' || navigator.onLine) {
-          handleFirestoreError(error, OperationType.UPDATE, `users/${firebaseUser.uid}`);
-        }
-      }
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [settings, activeVehicle.id, firebaseUser, isProfileLoaded]);
 
   // Live GPS presence & daily earnings sync to Firestore (throttled for GPS ticks)
   useEffect(() => {
@@ -838,7 +472,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [firebaseUser, isProfileLoaded, driverPos.lat, driverPos.lng, driverHeading, isOnline, todayEarnings, todayTripsCount]);
 
-  // 3. Instant local backup in localStorage + per-user settings/vehicle persistence
+  // 3. Instant local backup in localStorage (resets isOnline on stored snapshot)
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -852,15 +486,6 @@ export default function App() {
       // Ignore storage errors
     }
   }, [profile]);
-
-  useEffect(() => {
-    if (lastSavedScopeRef.current !== activeUserScopeKey) {
-      lastSavedScopeRef.current = activeUserScopeKey;
-      return;
-    }
-    saveUserSettings(activeUserScopeKey, settings);
-    saveUserVehicleId(activeUserScopeKey, activeVehicle.id);
-  }, [settings, activeVehicle.id, activeUserScopeKey]);
 
   // 2-Minute Customer No-Response Timer
   useEffect(() => {
@@ -888,13 +513,11 @@ export default function App() {
   // Shift Start / Break / End with Screen Wake Lock
   const startShift = useCallback(() => {
     requestScreenWakeLock().catch(() => {});
-    dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     setProfile((p) => ({ ...p, isOnline: true }));
     playSuccessTone(settings.soundAlerts);
     addToast('Online', 'Screen wake lock active while driving', 'success');
-  }, [settings.soundAlerts, settings.dispatchWaitSec, addToast]);
+  }, [settings.soundAlerts, addToast]);
 
   const handleStartBreak = useCallback(() => {
     setStatus('ON_BREAK');
@@ -902,69 +525,19 @@ export default function App() {
   }, [addToast]);
 
   const handleResumeFromBreak = useCallback(() => {
-    dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     playSuccessTone(settings.soundAlerts);
     addToast('Back Online', 'Accepting nearby rides & surges again', 'success');
-  }, [settings.soundAlerts, settings.dispatchWaitSec, addToast]);
+  }, [settings.soundAlerts, addToast]);
 
   const endShift = useCallback(() => {
     releaseScreenWakeLock().catch(() => {});
     setStatus('OFFLINE');
     setActiveRankId(null);
     setRankQueuePos(null);
-    setQueuedOffer(null);
-    setQueuedAccepted(false);
-    setActivePitStop(null);
-    setActivePitStopRoute([]);
     setProfile((p) => ({ ...p, isOnline: false }));
-
-    if (shiftElapsedSec >= 45 || todayTripsCount > 0) {
-      const todayCost = expenses
-        .filter((e) => e.dayKey === todayKey)
-        .reduce((sum, e) => sum + e.amount, 0);
-      const effectiveMi = Math.max(
-        shiftDistanceKm * 0.621371,
-        todayTrips.reduce((s, t) => s + t.distanceKm, 0) * 0.621371
-      );
-      const hrs = Math.max(0.08, shiftElapsedSec / 3600);
-      const goalMet = todayEarnings >= settings.dailyGoal;
-      setShiftSummary({
-        durationSec: Math.max(60, shiftElapsedSec),
-        distanceKm:
-          shiftDistanceKm > 0
-            ? shiftDistanceKm
-            : todayTrips.reduce((s, t) => s + t.distanceKm, 0),
-        tripsCount: todayTripsCount,
-        grossEarnings: todayEarnings,
-        expensesTotal: todayCost,
-        netProfit: Number((todayEarnings - todayCost).toFixed(2)),
-        perHour: todayEarnings / hrs,
-        perMile: effectiveMi > 0 ? todayEarnings / effectiveMi : 0,
-        goalTarget: settings.dailyGoal,
-        goalMet,
-        streakDays: goalMet ? 4 : 3,
-        currency,
-      });
-      setShiftElapsedSec(0);
-      setShiftDistanceKm(0);
-      breakRemindedRef.current = false;
-    }
-
     addToast('Offline', 'Shift ended and screen wake lock released', 'info');
-  }, [
-    addToast,
-    shiftElapsedSec,
-    todayTripsCount,
-    todayTrips,
-    expenses,
-    todayKey,
-    shiftDistanceKm,
-    todayEarnings,
-    settings.dailyGoal,
-    currency,
-  ]);
+  }, [addToast]);
 
   // Gated Go Online (checks Insurance Expiry first)
   const handleGoOnline = useCallback(() => {
@@ -1002,10 +575,6 @@ export default function App() {
         setGpsLoading(false);
         setSurgeZones(generateSurgeZonesNear(coords, currentCityId));
         setRanks(generateRanksNear(coords, currentCityId));
-        setDistrictDemandZones(generateDistrictDemandNear(coords, currentCityId));
-        setCleanAirZones(generateCleanAirZonesNear(coords, currentCityId));
-        setSpeedCameras(generateSpeedCamerasNear(coords, currentCityId));
-        setChargingStations(generateChargingStationsNear(coords, currentCityId));
         setBidJobs(generateBidJobsNear(coords, currentCityId, settings.enabledCategories));
         addToast('Live GPS Locked', 'Dispatch map centered on your real location', 'success');
       },
@@ -1049,15 +618,8 @@ export default function App() {
       setDriverPos(city.center);
       setActiveRankId(null);
       setRankQueuePos(null);
-      setActivePitStop(null);
-      setActivePitStopRoute([]);
       setSurgeZones(generateSurgeZonesNear(city.center, city.id));
       setRanks(generateRanksNear(city.center, city.id));
-      setDistrictDemandZones(generateDistrictDemandNear(city.center, city.id));
-      setCleanAirZones(generateCleanAirZonesNear(city.center, city.id));
-      setSpeedCameras(generateSpeedCamerasNear(city.center, city.id));
-      setChargingStations(generateChargingStationsNear(city.center, city.id));
-      setScheduledRides(generateScheduledRidesNear(city.center, city.id));
       setBidJobs(generateBidJobsNear(city.center, city.id, settings.enabledCategories));
       addToast('City Switched', `Dispatch map moved to ${city.name}, ${city.country}`, 'info');
     },
@@ -1111,26 +673,14 @@ export default function App() {
     sendNotification,
   ]);
 
-  // 1–5 min wait countdown between completing/declining a job and receiving the next request
+  // Auto-dispatch ride requests when Online & Idle (paused when ON_BREAK)
   useEffect(() => {
     if (status !== 'ONLINE_IDLE') return;
-    const timer = setInterval(() => {
-      setNextRequestWaitLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [status]);
-
-  // Dispatch ride offer once the wait timer hits 0 (paused when ON_BREAK)
-  useEffect(() => {
-    if (status !== 'ONLINE_IDLE') {
-      dispatchTriggeredRef.current = false;
-      return;
-    }
-    if (nextRequestWaitLeft === 0 && !dispatchTriggeredRef.current) {
-      dispatchTriggeredRef.current = true;
+    const timer = setTimeout(() => {
       triggerRideOffer();
-    }
-  }, [status, nextRequestWaitLeft, triggerRideOffer]);
+    }, 5200);
+    return () => clearTimeout(timer);
+  }, [status, triggerRideOffer]);
 
   // Background App Refresh Engine
   const runBackgroundSync = useCallback(() => {
@@ -1190,8 +740,7 @@ export default function App() {
       setPreviewDropoffRoute([]);
       setActiveManeuvers(finalReq.maneuversToPickup);
       setCurrentManeuverIndex(0);
-      setCurrentRouteIndex(0);
-      routeProgressRef.current = { index: 0, progress: 0 };
+      routeIndexRef.current = 0;
       setChatMessages([]);
       setUnreadChatCount(0);
       setAwaitingRiderReply(false);
@@ -1227,15 +776,11 @@ export default function App() {
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setAcceptanceRate((r) => Math.max(70, r - 1));
-    dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
-  }, [settings.dispatchWaitSec]);
+  }, []);
 
   // Service Worker Background Notification Action Callback (Accept / Decline buttons)
   useEffect(() => {
@@ -1263,66 +808,28 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
   }, [status, handleAcceptRequest, handleDeclineRequest]);
 
-  // Continuous turn-by-turn GPS navigation along road geometry
+  // Smooth GPS movement along OSRM route + real navigation sound chimes
   useEffect(() => {
     if (status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS') return;
     if (activeRoute.length < 2) return;
 
-    const tickMs = 35;
     const interval = setInterval(() => {
-      let { index, progress } = routeProgressRef.current;
-      if (index >= activeRoute.length - 1) return;
+      const idx = routeIndexRef.current;
+      if (idx >= activeRoute.length - 1) return;
 
-      const currPt = activeRoute[index];
-      const nextPt = activeRoute[index + 1];
-      const segKm = exactDistanceKm(currPt, nextPt);
-      const targetKmh = segKm > 0.06 ? 48 : 34;
-      const travelKm = ((targetKmh / 3600) * (tickMs / 1000)) * 2.2;
+      const curr = activeRoute[idx];
+      const next = activeRoute[idx + 1];
+      const bearing = calculateBearing(curr, next);
+      setDriverHeading(bearing);
+      setDriverPos(next);
+      routeIndexRef.current = idx + 1;
 
-      if (segKm < 0.0005) {
-        index += 1;
-        progress = 0;
-      } else {
-        progress += travelKm / segKm;
-        while (progress >= 1 && index < activeRoute.length - 1) {
-          const remainingRatio = progress - 1;
-          const prevSegKm = exactDistanceKm(activeRoute[index], activeRoute[index + 1]);
-          index += 1;
-          if (index >= activeRoute.length - 1) {
-            progress = 0;
-            break;
-          }
-          const nextSegKm = exactDistanceKm(activeRoute[index], activeRoute[index + 1]);
-          progress = nextSegKm > 0.0005 ? (remainingRatio * prevSegKm) / nextSegKm : 0;
-        }
-      }
-
-      routeProgressRef.current = { index, progress };
-      setCurrentRouteIndex(index);
-      setNavSpeedKmh(Math.round(targetKmh + Math.sin(index * 0.7) * 3));
-
-      if (index >= activeRoute.length - 1) {
-        setDriverPos(activeRoute[activeRoute.length - 1]);
-      } else {
-        const a = activeRoute[index];
-        const b = activeRoute[index + 1];
-        setDriverHeading(calculateBearing(a, b));
-        setDriverPos(interpolateLatLng(a, b, progress));
-      }
-
-      let matchedManIdx = currentManeuverIndex;
-      for (let m = currentManeuverIndex + 1; m < activeManeuvers.length; m++) {
-        if (index >= activeManeuvers[m].pointIndex) {
-          matchedManIdx = m;
-        } else {
-          break;
-        }
-      }
-      if (matchedManIdx > currentManeuverIndex) {
-        setCurrentManeuverIndex(matchedManIdx);
+      const nextMan = activeManeuvers[currentManeuverIndex + 1];
+      if (nextMan && idx + 1 >= nextMan.pointIndex) {
+        setCurrentManeuverIndex((m) => m + 1);
         playNavigationTurnPing(settings.soundAlerts);
       }
-    }, tickMs);
+    }, 360);
 
     return () => clearInterval(interval);
   }, [
@@ -1337,8 +844,6 @@ export default function App() {
     if (!activeRequest) return;
     setDriverPos(activeRequest.pickupCoords);
     setActiveRoute([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setStatus('ARRIVED_PICKUP');
     playArrivalChime(settings.soundAlerts);
     // Start 2-minute customer response watch if rider hasn't replied yet
@@ -1348,33 +853,23 @@ export default function App() {
     }
   }, [activeRequest, settings.soundAlerts, chatMessages]);
 
-  const handleStartTrip = useCallback(
-    (waitFeeAccrued = 0, _pinVerified = false) => {
-      if (!activeRequest) return;
-      setActiveRequest((prev) => (prev ? { ...prev, waitFeeTotal: waitFeeAccrued } : prev));
-      setActiveRoute(activeRequest.toDropoffRoute);
-      setActiveManeuvers(activeRequest.maneuversToDropoff);
-      setCurrentManeuverIndex(0);
-      setCurrentRouteIndex(0);
-      routeProgressRef.current = { index: 0, progress: 0 };
-      setAwaitingRiderReply(false);
-      setRiderNoResponseSec(0);
-      queuedGeneratedForTripRef.current = null;
-      setQueuedOffer(null);
-      setQueuedAccepted(false);
-      setStatus('IN_PROGRESS');
-      playSuccessTone(settings.soundAlerts);
-    },
-    [activeRequest, settings.soundAlerts]
-  );
+  const handleStartTrip = useCallback(() => {
+    if (!activeRequest) return;
+    setActiveRoute(activeRequest.toDropoffRoute);
+    setActiveManeuvers(activeRequest.maneuversToDropoff);
+    setCurrentManeuverIndex(0);
+    routeIndexRef.current = 0;
+    setAwaitingRiderReply(false);
+    setRiderNoResponseSec(0);
+    setStatus('IN_PROGRESS');
+    playSuccessTone(settings.soundAlerts);
+  }, [activeRequest, settings.soundAlerts]);
 
   const handleCompleteTrip = useCallback(() => {
     if (!activeRequest) return;
     setDriverPos(activeRequest.dropoffCoords);
     setActiveRoute([]);
     setActiveManeuvers([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setStatus('TRIP_COMPLETED');
@@ -1383,20 +878,13 @@ export default function App() {
 
   const handleSubmitRating = (rating: number, tipBonus: number) => {
     if (!activeRequest) return;
-    const waitFee = activeRequest.waitFeeTotal || 0;
-    const tollFee = activeRequest.tollOrAirportFee || 0;
-    const fareForCommission = Number((activeRequest.estimatedFare + waitFee).toFixed(2));
-    const commission = Number((fareForCommission * 0.15).toFixed(2));
-    const netEarnings = Number(
-      (fareForCommission - commission + tollFee + tipBonus).toFixed(2)
-    );
+    const commission = Number((activeRequest.estimatedFare * 0.15).toFixed(2));
+    const netEarnings = Number((activeRequest.estimatedFare - commission + tipBonus).toFixed(2));
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now
       .getMinutes()
       .toString()
       .padStart(2, '0')}`;
-
-    const totalTripDistKm = activeRequest.pickupDistanceKm + activeRequest.tripDistanceKm;
 
     const newTrip: CompletedTrip = {
       id: `TR-${9043 + trips.length}`,
@@ -1405,20 +893,11 @@ export default function App() {
       paymentMethod: activeRequest.paymentMethod,
       pickupAddress: activeRequest.pickupAddress,
       dropoffAddress: activeRequest.dropoffAddress,
-      stopsCount: activeRequest.stops?.length,
-      pickupPinVerified: Boolean(activeRequest.pickupPin),
       completedAt: timeStr,
       dayKey: todayKey,
       distanceKm: activeRequest.tripDistanceKm,
       durationMin: activeRequest.tripEtaMin,
-      grossFare: fareForCommission,
-      baseFare: activeRequest.baseFare,
-      distanceFare: activeRequest.distanceFare,
-      timeFare: activeRequest.timeFare,
-      waitFee,
-      tollFee,
-      tollLabel: activeRequest.tollLabel,
-      surgeMultiplier: activeRequest.surgeMultiplier,
+      grossFare: activeRequest.estimatedFare,
       boltCommission: commission,
       surgeBonus: activeRequest.surgeBonus,
       tip: tipBonus,
@@ -1427,18 +906,6 @@ export default function App() {
     };
 
     setTrips((prev) => [newTrip, ...prev]);
-    setShiftDistanceKm((d) => Number((d + totalTripDistKm).toFixed(2)));
-    setVehicles((prev) =>
-      prev.map((v) =>
-        v.id === activeVehicle.id
-          ? {
-              ...v,
-              rangeKm: Math.max(0, Math.round(v.rangeKm - totalTripDistKm)),
-              odometerKm: Math.round(v.odometerKm + totalTripDistKm),
-            }
-          : v
-      )
-    );
     setProfile((p) => ({
       ...p,
       bankBalance: Number((p.bankBalance + netEarnings).toFixed(2)),
@@ -1462,35 +929,7 @@ export default function App() {
       })
     );
 
-    if (queuedAccepted && queuedOffer) {
-      const nextReq = queuedOffer;
-      setQueuedOffer(null);
-      setQueuedAccepted(false);
-      setActiveRequest(nextReq);
-      setActiveRoute(nextReq.toPickupRoute);
-      setPreviewDropoffRoute([]);
-      setActiveManeuvers(nextReq.maneuversToPickup);
-      setCurrentManeuverIndex(0);
-      setCurrentRouteIndex(0);
-      routeProgressRef.current = { index: 0, progress: 0 };
-      setChatMessages([]);
-      setUnreadChatCount(0);
-      setAwaitingRiderReply(false);
-      setRiderNoResponseSec(0);
-      setStatus('EN_ROUTE_PICKUP');
-      sendNotification(
-        `Trip Paid · ${currency}${netEarnings.toFixed(2)}`,
-        `Routing immediately to queued pickup: ${nextReq.pickupAddress}`,
-        'success'
-      );
-      return;
-    }
-
-    setQueuedOffer(null);
-    setQueuedAccepted(false);
     setActiveRequest(null);
-    dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     sendNotification(
       'Trip Paid',
@@ -1505,13 +944,9 @@ export default function App() {
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
     setCompletionRate((r) => Math.max(85, r - 1));
-    dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     addToast('Ride Cancelled', reason, 'info');
   };
@@ -1625,8 +1060,7 @@ export default function App() {
     setPreviewDropoffRoute([]);
     setActiveManeuvers(req.maneuversToPickup);
     setCurrentManeuverIndex(0);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
+    routeIndexRef.current = 0;
     setChatMessages([]);
     setUnreadChatCount(0);
     setAwaitingRiderReply(false);
@@ -1646,21 +1080,13 @@ export default function App() {
     vehicle: Vehicle;
     documents: DriverDocument[];
   }) => {
-    const newScopeKey = getUserScopeKey(newProfile, firebaseUser);
-    const existingSavedForUser = loadUserSettings(newScopeKey);
-    const nextSettings: DriverSettings = {
-      ...existingSavedForUser,
-      enabledCategories: newVehicle.categories,
-    };
-
-    saveUserSettings(newScopeKey, nextSettings);
-    saveUserVehicleId(newScopeKey, newVehicle.id);
-
     setProfile(newProfile);
     setVehicles((prev) => [newVehicle, ...prev.map((v) => ({ ...v, isActive: false }))]);
     setDocuments(newDocs);
-    setSettings(nextSettings);
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(nextSettings.dispatchWaitSec));
+    setSettings((s) => ({
+      ...s,
+      enabledCategories: newVehicle.categories,
+    }));
 
     const city = getCityById(newProfile.cityId);
     setCurrentCityId(city.id);
@@ -1671,7 +1097,7 @@ export default function App() {
     setShowAccountCreation(false);
     setIsProfileLoaded(true);
     setActiveTab('map');
-    playBidAcceptedTone(nextSettings.soundAlerts);
+    playBidAcceptedTone(settings.soundAlerts);
     addToast('Account Active', `Welcome ${newProfile.fullName}!`, 'success');
   };
 
@@ -1751,10 +1177,6 @@ export default function App() {
   const handleEnablePush = async () => {
     const perm = await requestPushPermission();
     setNotificationPermission(perm);
-    setPermissionsSnapshot((prev) => ({
-      ...prev,
-      notifications: perm === 'default' ? 'prompt' : perm,
-    }));
     if (perm === 'granted') {
       setSettings((s) => ({ ...s, pushNotifications: true }));
       if (firebaseUser) initializeFCMToken(firebaseUser.uid);
@@ -1767,67 +1189,6 @@ export default function App() {
       addToast('Permission Denied', 'Browser blocked push notifications.', 'alert');
     }
   };
-
-  const applyPermissionResult = useCallback(
-    (snapshot: AppPermissionsSnapshot, coords?: { lat: number; lng: number }) => {
-      setPermissionsSnapshot(snapshot);
-      const nextNotif: NotificationPermissionState =
-        snapshot.notifications === 'granted'
-          ? 'granted'
-          : snapshot.notifications === 'denied'
-          ? 'denied'
-          : 'default';
-      setNotificationPermission(nextNotif);
-
-      if (snapshot.notifications === 'granted') {
-        setSettings((s) => (s.pushNotifications ? s : { ...s, pushNotifications: true }));
-        if (firebaseUser) initializeFCMToken(firebaseUser.uid);
-      }
-
-      if (coords) {
-        const rounded: LatLng = {
-          lat: Number(coords.lat.toFixed(6)),
-          lng: Number(coords.lng.toFixed(6)),
-        };
-        setDriverPos(rounded);
-        setIsLiveGps(true);
-        setSurgeZones(generateSurgeZonesNear(rounded, currentCityId));
-        setRanks(generateRanksNear(rounded, currentCityId));
-        setBidJobs(generateBidJobsNear(rounded, currentCityId, settings.enabledCategories));
-      }
-    },
-    [firebaseUser, currentCityId, settings.enabledCategories]
-  );
-
-  const handleBootComplete = useCallback(async () => {
-    setShowBootScreen(false);
-    try {
-      const current = await queryAllPermissions();
-      setPermissionsSnapshot(current);
-
-      const bootDone = localStorage.getItem(BOOT_PERMS_DONE_KEY) === 'true';
-      const hasPending =
-        current.location === 'prompt' ||
-        current.microphone === 'prompt' ||
-        current.notifications === 'prompt';
-
-      if (!bootDone || hasPending) {
-        localStorage.setItem(BOOT_PERMS_DONE_KEY, 'true');
-        const { snapshot, coords } = await requestAllDevicePermissions();
-        applyPermissionResult(snapshot, coords);
-
-        if (
-          snapshot.location === 'prompt' ||
-          snapshot.microphone === 'prompt' ||
-          snapshot.notifications === 'prompt'
-        ) {
-          setShowPermissionsModal(true);
-        }
-      }
-    } catch {
-      setShowPermissionsModal(true);
-    }
-  }, [applyPermissionResult]);
 
   const handleSendChat = (text: string) => {
     const now = new Date();
@@ -1894,10 +1255,6 @@ export default function App() {
       distanceKm: activeRequest.pickupDistanceKm,
       durationMin: 2,
       grossFare: fee,
-      baseFare: fee,
-      distanceFare: 0,
-      timeFare: 0,
-      waitFee: 0,
       boltCommission: 0,
       surgeBonus: 0,
       tip: 0,
@@ -1926,12 +1283,8 @@ export default function App() {
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
-    dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
     setStatus('ONLINE_IDLE');
     sendNotification(
       'Cancellation Fee Credited',
@@ -1955,314 +1308,13 @@ export default function App() {
     }
   };
 
-  const handleRechargeVehicle = useCallback(
-    (vehicleId: string) => {
-      setVehicles((prev) =>
-        prev.map((v) => (v.id === vehicleId ? { ...v, rangeKm: v.maxRangeKm } : v))
-      );
-      const chosen = vehicles.find((v) => v.id === vehicleId);
-      if (chosen) {
-        addToast(
-          chosen.fuelType === 'Electric' ? 'Battery Recharged' : 'Tank Refueled',
-          `${chosen.makeModel} range restored to ${formatWholeMiles(chosen.maxRangeKm)}.`,
-          'success'
-        );
-      }
-    },
-    [vehicles, addToast]
-  );
-
-  const handleServiceVehicle = useCallback(
-    (vehicleId: string, kind: 'service' | 'tyres') => {
-      setVehicles((prev) =>
-        prev.map((v) =>
-          v.id === vehicleId
-            ? kind === 'service'
-              ? { ...v, nextServiceKm: v.odometerKm + 15000 }
-              : { ...v, tyreCheckKm: v.odometerKm + 10000 }
-            : v
-        )
-      );
-      addToast(
-        kind === 'service' ? 'Service Logged' : 'Tyre Check Logged',
-        kind === 'service'
-          ? `Next service interval reset (+${formatWholeMiles(15000)}).`
-          : `Next tyre rotation/check reset (+${formatWholeMiles(10000)}).`,
-        'success'
-      );
-    },
-    [addToast]
-  );
-
-  // Remaining route ETA & Distance calculation along remaining polyline segments
+  // Remaining route ETA & Distance calculation
   const targetCoord =
     status === 'EN_ROUTE_PICKUP' ? activeRequest?.pickupCoords : activeRequest?.dropoffCoords;
-  const remainingDistKm = useMemo(() => {
-    if (activeRoute.length > 1 && (status === 'EN_ROUTE_PICKUP' || status === 'IN_PROGRESS')) {
-      let totalKm = exactDistanceKm(
-        driverPos,
-        activeRoute[Math.min(activeRoute.length - 1, currentRouteIndex + 1)]
-      );
-      for (let i = currentRouteIndex + 1; i < activeRoute.length - 1; i++) {
-        totalKm += exactDistanceKm(activeRoute[i], activeRoute[i + 1]);
-      }
-      return Math.max(0.1, Number(totalKm.toFixed(1)));
-    }
-    return targetCoord
-      ? Math.max(0.1, Number((exactDistanceKm(driverPos, targetCoord) * 1.18).toFixed(1)))
-      : 0;
-  }, [activeRoute, currentRouteIndex, driverPos, targetCoord, status]);
-  const remainingEtaMin = Math.max(1, Math.round((remainingDistKm / Math.max(20, navSpeedKmh)) * 60));
-
-  // Spoken Voice Turn Guidance when currentManeuverIndex changes
-  useEffect(() => {
-    if (status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS') {
-      lastSpokenManeuverRef.current = '';
-      return;
-    }
-    const step = activeManeuvers[currentManeuverIndex];
-    if (!step) return;
-    const key = `${activeRequest?.id}-${status}-${currentManeuverIndex}-${step.instruction}`;
-    if (lastSpokenManeuverRef.current !== key) {
-      lastSpokenManeuverRef.current = key;
-      speakNavigationInstruction(
-        step.instruction,
-        settings.soundAlerts && settings.voiceGuidance !== false
-      );
-    }
-  }, [status, activeManeuvers, currentManeuverIndex, activeRequest?.id, settings.soundAlerts, settings.voiceGuidance]);
-
-  // Speed Camera Proximity & Posted Speed Limit
-  const { nearbyCamera, nearbyCameraDistM } = useMemo(() => {
-    let closest: SpeedCamera | null = null;
-    let minMeters = Infinity;
-    for (const cam of speedCameras) {
-      const m = exactDistanceKm(driverPos, cam.coords) * 1000;
-      if (m < minMeters) {
-        minMeters = m;
-        closest = cam;
-      }
-    }
-    if (closest && minMeters <= 260) {
-      return { nearbyCamera: closest, nearbyCameraDistM: Math.round(minMeters) };
-    }
-    return { nearbyCamera: null, nearbyCameraDistM: null };
-  }, [speedCameras, driverPos]);
-
-  const postedLimitMph = useMemo(() => {
-    if (nearbyCamera) return nearbyCamera.limitMph;
-    if (kmhToMph(navSpeedKmh) >= 29) return 30;
-    return 20;
-  }, [nearbyCamera, navSpeedKmh]);
-
-  useEffect(() => {
-    if (status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS') return;
-    if (nearbyCamera && lastAlertedCameraRef.current !== nearbyCamera.id) {
-      lastAlertedCameraRef.current = nearbyCamera.id;
-      playSpeedCameraAlert(settings.soundAlerts);
-      speakNavigationInstruction(
-        `${nearbyCamera.cameraType} speed camera ahead, ${nearbyCamera.limitMph} miles per hour limit.`,
-        settings.soundAlerts && settings.voiceGuidance !== false
-      );
-    } else if (!nearbyCamera) {
-      lastAlertedCameraRef.current = null;
-    }
-  }, [nearbyCamera, status, settings.soundAlerts, settings.voiceGuidance]);
-
-  // Clean Air / Congestion Zone Geofence Detection
-  const activeCleanAirZone = useMemo(() => {
-    for (const z of cleanAirZones) {
-      if (exactDistanceKm(driverPos, z.center) * 1000 <= z.radiusMeters) {
-        return z;
-      }
-    }
-    return null;
-  }, [cleanAirZones, driverPos]);
-
-  // Smart Back-to-Back Queued Offer near Dropoff
-  useEffect(() => {
-    if (status !== 'IN_PROGRESS' || !activeRequest || queuedOffer) return;
-    if (remainingEtaMin <= 2 && queuedGeneratedForTripRef.current !== activeRequest.id) {
-      queuedGeneratedForTripRef.current = activeRequest.id;
-      const allowedCats = isInsuranceExpired
-        ? (['Delivery'] as const)
-        : settings.enabledCategories;
-      generateLiveRideRequest({
-        driverLocation: activeRequest.dropoffCoords,
-        cityId: currentCityId,
-        enabledCategories: [...allowedCats],
-        acceptCash: settings.acceptCash,
-        allowBid: settings.allowBidOffers,
-        maxPickupKm: settings.maxPickupKm,
-        minFareFilter: settings.minFareFilter,
-        minRiderRating: settings.minRiderRating,
-        destinationTarget: settings.destinationFilter.targetCoords,
-        surgeZones,
-      }).then((nextOffer) => {
-        setQueuedOffer(nextOffer);
-        sendNotification(
-          `Next Ride Offer · ${nextOffer.currency}${nextOffer.estimatedFare.toFixed(2)}`,
-          `Near your dropoff: ${nextOffer.pickupAddress}`,
-          'info'
-        );
-      });
-    }
-  }, [
-    status,
-    activeRequest,
-    queuedOffer,
-    remainingEtaMin,
-    isInsuranceExpired,
-    settings.enabledCategories,
-    settings.acceptCash,
-    settings.allowBidOffers,
-    settings.maxPickupKm,
-    settings.minFareFilter,
-    settings.minRiderRating,
-    settings.destinationFilter.targetCoords,
-    currentCityId,
-    surgeZones,
-    sendNotification,
-  ]);
-
-  // Pit-Stop Routing, Zone Toll Log, Stealth Recording & Post-Trip Claims Handlers
-  const handleRouteToStation = useCallback(
-    async (station: ChargingStation) => {
-      const res = await fetchRoadRoute(driverPos, station.coords);
-      setActivePitStop(station);
-      setActivePitStopRoute(res.points);
-      addToast('Pit-Stop Route Active', `Routing to ${station.name}`, 'info');
-    },
-    [driverPos, addToast]
-  );
-
-  const handleCompletePitStop = useCallback(() => {
-    if (!activePitStop) return;
-    setDriverPos(activePitStop.coords);
-    setVehicles((prev) =>
-      prev.map((v) => (v.id === activeVehicle.id ? { ...v, rangeKm: v.maxRangeKm } : v))
-    );
-    const estCost = activeVehicle.fuelType === 'Electric' ? 16.5 : 42.0;
-    handleAddExpense({
-      category: activeVehicle.fuelType === 'Electric' ? 'EV Charging' : 'Fuel',
-      amount: estCost,
-      note: `${activePitStop.name} top-up`,
-    });
-    setActivePitStop(null);
-    setActivePitStopRoute([]);
-    addToast('Range Restored', `${activeVehicle.makeModel} topped up to 100%`, 'success');
-  }, [activePitStop, activeVehicle, handleAddExpense, addToast]);
-
-  const handleLogZoneCharge = useCallback(
-    (zone: CleanAirZone) => {
-      if (loggedZoneIdsToday.includes(zone.id)) return;
-      setLoggedZoneIdsToday((prev) => [...prev, zone.id]);
-      handleAddExpense({
-        category: 'Toll',
-        amount: zone.dailyFee,
-        note: `${zone.name} daily charge`,
-      });
-    },
-    [loggedZoneIdsToday, handleAddExpense]
-  );
-
-  const handleToggleStealthSafety = useCallback(() => {
-    setStealthRecordingActive((prev) => {
-      const next = !prev;
-      if (next) {
-        addToast(
-          'Stealth Recording Armed',
-          'Discreet cabin audio & live GPS log started. Hold Safety icon to stop.',
-          'alert'
-        );
-      } else {
-        handleSaveIncident({
-          tripId: activeRequest?.id,
-          riderName: activeRequest?.riderName,
-          type: 'Vehicle / Dashcam',
-          summary: 'Stealth dashcam & cabin audio clip captured via Hold-for-SOS',
-          hasAudioNote: true,
-          audioDurationSec: 18,
-          coords: driverPos,
-          vehiclePlate: activeVehicle.plate,
-        });
-      }
-      return next;
-    });
-  }, [addToast, handleSaveIncident, activeRequest, driverPos, activeVehicle.plate]);
-
-  const handleReportLostItem = useCallback(
-    (tripId: string, item: string, creditReturnFee: boolean) => {
-      const returnBonus = creditReturnFee ? 15 : 0;
-      const stamped = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setTrips((prev) =>
-        prev.map((t) =>
-          t.id === tripId
-            ? {
-                ...t,
-                netEarnings: Number((t.netEarnings + returnBonus).toFixed(2)),
-                lostItemReport: {
-                  item,
-                  reportedAt: stamped,
-                  returnFeeCredited: returnBonus || undefined,
-                },
-              }
-            : t
-        )
-      );
-      if (returnBonus > 0) {
-        setProfile((p) => ({
-          ...p,
-          bankBalance: Number((p.bankBalance + returnBonus).toFixed(2)),
-        }));
-      }
-      addToast(
-        'Found Property Logged',
-        creditReturnFee
-          ? `"${item}" logged with +${currency}15.00 return fee.`
-          : `"${item}" logged for rider pickup.`,
-        'success'
-      );
-    },
-    [addToast, currency]
-  );
-
-  const handleSubmitCleaningClaim = useCallback(
-    (tripId: string, amount: number, reason: string) => {
-      const approved = amount <= 80;
-      const stamped = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setTrips((prev) =>
-        prev.map((t) =>
-          t.id === tripId
-            ? {
-                ...t,
-                netEarnings: approved ? Number((t.netEarnings + amount).toFixed(2)) : t.netEarnings,
-                cleaningFeeClaim: {
-                  amount,
-                  reason,
-                  status: approved ? 'approved' : 'submitted',
-                  submittedAt: stamped,
-                },
-              }
-            : t
-        )
-      );
-      if (approved) {
-        setProfile((p) => ({
-          ...p,
-          bankBalance: Number((p.bankBalance + amount).toFixed(2)),
-        }));
-      }
-      addToast(
-        'Cleaning Claim Submitted',
-        approved
-          ? `${currency}${amount.toFixed(2)} instant valeting fee credited.`
-          : `${currency}${amount.toFixed(2)} claim submitted for team review.`,
-        'success'
-      );
-    },
-    [addToast, currency]
-  );
+  const remainingDistKm = targetCoord
+    ? Math.max(0.1, Number((haversineKm(driverPos, targetCoord) * 1.18).toFixed(1)))
+    : 0;
+  const remainingEtaMin = Math.max(1, Math.round(remainingDistKm * 3.1));
 
   const isTripActive =
     status === 'INCOMING_REQUEST' ||
@@ -2274,33 +1326,23 @@ export default function App() {
   const navItems: { id: AppTab; label: string; icon: React.ComponentType<{ className?: string }> }[] =
     [
       { id: 'map', label: 'Drive', icon: MapIcon },
-      { id: 'schedule', label: 'Schedule', icon: CalendarClock },
       { id: 'earnings', label: 'Earnings', icon: Wallet },
       { id: 'activity', label: 'Activity', icon: Activity },
       { id: 'insurance', label: 'Insurance', icon: Shield },
       { id: 'account', label: 'Account', icon: User },
     ];
 
-  const mobileNavItems = navItems.filter((item) => item.id !== 'insurance');
-
   return (
     <div className="h-dvh w-screen overflow-hidden flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 text-slate-950 dark:text-white">
       {/* Desktop Left Navigation Rail */}
       <aside className="hidden lg:flex flex-col justify-between w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800 p-5 z-30">
         <div className="space-y-6">
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2.5">
-              <img
-                src="/assets/aistudio/image_adf30014.png"
-                alt="Bolt Driver logo"
-                className="w-9 h-9 rounded-xl object-cover shadow-md border border-slate-200 dark:border-slate-700 shrink-0"
-              />
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-xl font-extrabold tracking-tight text-slate-950 dark:text-white">
-                  Bolt
-                </span>
-                <span className="text-xs font-bold text-[#25B670]">Driver</span>
-              </div>
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-extrabold tracking-tight text-slate-950 dark:text-white">
+                Bolt
+              </span>
+              <span className="text-xs font-bold text-[#25B670]">Driver</span>
             </div>
 
             <button
@@ -2346,7 +1388,7 @@ export default function App() {
             })}
           </nav>
 
-          {/* Direct New Driver Account Creation & PWA Install */}
+          {/* Direct New Driver Account Creation */}
           <div className="space-y-2 pt-2">
             <button
               type="button"
@@ -2356,7 +1398,6 @@ export default function App() {
               <UserPlus className="w-4 h-4 text-[#25B670]" />
               <span>Register New Account</span>
             </button>
-            <PWAInstallButton variant="sidebar" />
           </div>
         </div>
 
@@ -2378,7 +1419,7 @@ export default function App() {
       <main className="relative flex-1 h-full overflow-hidden">
         {/* Global In-App Toasts Stack */}
         {toasts.length > 0 && (
-          <div className="absolute top-[max(4.25rem,calc(env(safe-area-inset-top)+3.5rem))] left-1/2 -translate-x-1/2 z-[470] flex flex-col gap-2 items-center pointer-events-none w-full max-w-sm px-4">
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[470] flex flex-col gap-2 items-center pointer-events-none w-full max-w-sm px-4">
             {toasts.map((t) => (
               <div
                 key={t.id}
@@ -2406,58 +1447,17 @@ export default function App() {
               activeRequest={activeRequest}
               activeRoute={activeRoute}
               previewDropoffRoute={previewDropoffRoute}
-              currentRouteIndex={currentRouteIndex}
               currentManeuver={activeManeuvers[currentManeuverIndex] || null}
-              nextManeuver={activeManeuvers[currentManeuverIndex + 1] || null}
-              navSpeedKmh={navSpeedKmh}
-              remainingEtaMin={remainingEtaMin}
-              remainingDistKm={remainingDistKm}
               surgeZones={surgeZones}
-              districtDemandZones={districtDemandZones}
-              cleanAirZones={cleanAirZones}
-              speedCameras={speedCameras}
-              chargingStations={chargingStations}
-              weatherForecast={weatherForecast}
-              postedLimitMph={postedLimitMph}
-              nearbyCamera={nearbyCamera}
-              nearbyCameraDistM={nearbyCameraDistM}
-              activeCleanAirZone={activeCleanAirZone}
-              zoneLoggedToday={
-                activeCleanAirZone ? loggedZoneIdsToday.includes(activeCleanAirZone.id) : false
-              }
-              activePitStop={activePitStop}
-              activePitStopRoute={activePitStopRoute}
-              stealthRecordingActive={stealthRecordingActive}
-              showHeatmap={settings.showHeatmap}
-              headingUpNav={settings.headingUpNav}
               ranks={ranks}
               activeRankId={activeRankId}
-              rankQueuePos={rankQueuePos}
-              activeVehicle={activeVehicle}
               darkMode={settings.darkMode}
               soundEnabled={settings.soundAlerts}
               isLiveGps={isLiveGps}
               gpsLoading={gpsLoading}
-              isRerouting={false}
               currentCityId={currentCityId}
               destinationTarget={settings.destinationFilter.targetCoords}
-              onToggleLiveGps={handleRequestLiveGps}
-              onToggleHeatmap={() => setSettings((s) => ({ ...s, showHeatmap: !s.showHeatmap }))}
-              onToggleHeadingUp={() => setSettings((s) => ({ ...s, headingUpNav: !s.headingUpNav }))}
-              onLogZoneCharge={handleLogZoneCharge}
-              onRouteToStation={handleRouteToStation}
-              onCompletePitStop={handleCompletePitStop}
-              onCancelPitStop={() => {
-                setActivePitStop(null);
-                setActivePitStopRoute([]);
-              }}
-              onToggleStealthSafety={handleToggleStealthSafety}
-              onRefuelOrCharge={() => {
-                setVehicles((prev) =>
-                  prev.map((v) => (v.id === activeVehicle.id ? { ...v, rangeKm: v.maxRangeKm } : v))
-                );
-                addToast('Vehicle Refueled / Charged', `${activeVehicle.makeModel} range restored to 100%.`, 'success');
-              }}
+              onRequestLiveGps={handleRequestLiveGps}
               onSelectCity={handleSelectCity}
               onToggleSound={() => {
                 const next = !settings.soundAlerts;
@@ -2495,22 +1495,17 @@ export default function App() {
 
             {/* Floating Top Bar on Map — non-overlapping alignment */}
             {status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS' && (
-              <div className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-2.5 right-2.5 lg:left-3.5 lg:right-20 flex items-center justify-between pointer-events-none z-[400]">
-                <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 bg-slate-950/92 dark:bg-slate-900/95 text-white rounded-full pl-1 pr-1 py-0.5 sm:py-1 shadow-xl border border-white/10 max-w-[calc(100%-5.5rem)] sm:max-w-none">
-                  <img
-                    src="/assets/aistudio/image_adf30014.png"
-                    alt="Bolt Driver"
-                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover border border-white/15 shrink-0 lg:hidden"
-                  />
+              <div className="absolute top-3.5 left-3.5 right-3.5 lg:right-20 flex items-center justify-between pointer-events-none z-[400]">
+                <div className="pointer-events-auto flex items-center gap-1 bg-slate-950/92 dark:bg-slate-900/95 text-white rounded-full pl-4 pr-2 py-1.5 shadow-xl border border-white/10">
                   <button
                     type="button"
                     onClick={() => setActiveTab('earnings')}
-                    className="text-left pl-0 lg:pl-2 pr-1 min-w-0"
+                    className="text-left pr-2"
                   >
-                    <div className="text-[10px] font-semibold text-slate-400 leading-none truncate">
+                    <div className="text-[10px] font-semibold text-slate-400 leading-none">
                       Today ({todayKey}) · {isLiveGps ? 'GPS' : activeCity.name}
                     </div>
-                    <div className="text-xs sm:text-base font-extrabold font-mono-num leading-tight">
+                    <div className="text-base font-extrabold font-mono-num leading-tight">
                       {hideEarningsPill
                         ? `${currency}••••`
                         : `${currency}${todayEarnings.toFixed(2)}`}
@@ -2520,28 +1515,26 @@ export default function App() {
                     type="button"
                     onClick={() => setHideEarningsPill((h) => !h)}
                     aria-label={hideEarningsPill ? 'Show earnings' : 'Hide earnings'}
-                    className="w-8 h-8 sm:w-9 sm:h-9 rounded-full hover:bg-white/10 flex items-center justify-center text-slate-300 shrink-0"
+                    className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-slate-300"
                   >
                     {hideEarningsPill ? (
-                      <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      <Eye className="w-4 h-4" />
                     ) : (
-                      <EyeOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      <EyeOff className="w-4 h-4" />
                     )}
                   </button>
                 </div>
 
                 {/* Quick Mobile Actions (kept inside top row, clear of right map rail below) */}
-                <div className="flex items-center gap-1.5 pointer-events-auto lg:hidden shrink-0">
-                  <PWAInstallButton variant="icon" />
-
+                <div className="flex items-center gap-2 pointer-events-auto lg:hidden">
                   {notificationPermission !== 'granted' && (
                     <button
                       type="button"
                       onClick={handleEnablePush}
                       aria-label="Enable push notifications"
-                      className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-amber-500 active:scale-95 transition-transform"
+                      className="w-11 h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-amber-500"
                     >
-                      <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <Bell className="w-5 h-5" />
                     </button>
                   )}
 
@@ -2549,9 +1542,9 @@ export default function App() {
                     type="button"
                     onClick={() => setShowAccountCreation(true)}
                     aria-label="Create new driver account"
-                    className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-[#25B670] active:scale-95 transition-transform"
+                    className="w-11 h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-[#25B670]"
                   >
-                    <UserPlus className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <UserPlus className="w-5 h-5" />
                   </button>
                 </div>
               </div>
@@ -2559,9 +1552,9 @@ export default function App() {
 
             {/* 30-Day / Expired Insurance Warning Banner on Map (clears right rail buttons) */}
             {(showInsuranceWarning || isInsuranceExpired) && !isTripActive && (
-              <div className="absolute top-[max(3.75rem,calc(env(safe-area-inset-top)+3rem))] left-2.5 right-[52px] sm:right-[66px] lg:left-5 lg:right-auto lg:w-[410px] z-[400]">
+              <div className="absolute top-[72px] left-3.5 right-[68px] lg:left-5 lg:right-auto lg:w-[410px] z-[400]">
                 <div
-                  className={`rounded-2xl p-2.5 sm:p-3 shadow-xl border flex items-center justify-between gap-2 ${
+                  className={`rounded-2xl p-3 shadow-xl border flex items-center justify-between gap-2.5 ${
                     isInsuranceExpired
                       ? 'bg-rose-600 text-white border-rose-500'
                       : 'bg-amber-50 dark:bg-amber-950/95 text-amber-950 dark:text-amber-100 border-amber-300 dark:border-amber-800'
@@ -2587,7 +1580,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setIsInsuranceRenewalChatOpen(true)}
-                      className={`px-3 min-h-[36px] rounded-xl text-xs font-extrabold ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold ${
                         isInsuranceExpired
                           ? 'bg-white text-rose-700'
                           : 'bg-slate-900 text-white dark:bg-white dark:text-slate-950'
@@ -2602,7 +1595,7 @@ export default function App() {
                           setDismissedExpiries((prev) => [...prev, 'Vehicle Insurance'])
                         }
                         aria-label="Dismiss insurance warning"
-                        className="w-9 h-9 rounded-lg flex items-center justify-center opacity-75 hover:opacity-100"
+                        className="p-1 opacity-70 hover:opacity-100"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -2614,13 +1607,13 @@ export default function App() {
 
             {/* Masked Call Toast Banner */}
             {callBanner && (
-              <div className="absolute top-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] left-1/2 -translate-x-1/2 z-[450] bg-slate-950 text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-bold max-w-[90vw]">
-                <PhoneCall className="w-4 h-4 text-[#34D186] shrink-0" />
-                <span className="truncate">{callBanner}</span>
+              <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[450] bg-slate-950 text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-bold">
+                <PhoneCall className="w-4 h-4 text-[#34D186]" />
+                <span>{callBanner}</span>
                 <button
                   type="button"
                   onClick={() => setCallBanner(null)}
-                  className="text-slate-400 hover:text-white p-1 shrink-0"
+                  className="text-slate-400 hover:text-white"
                   aria-label="End simulated call"
                 >
                   <X className="w-4 h-4" />
@@ -2631,14 +1624,13 @@ export default function App() {
             {/* Dispatch Bottom Sheet / Docked Card */}
             <div
               className={`absolute left-0 right-0 lg:left-5 lg:right-auto lg:bottom-5 lg:w-[410px] z-[400] transition-all ${
-                isTripActive
-                  ? 'bottom-0'
-                  : 'bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] lg:bottom-5'
+                isTripActive ? 'bottom-0' : 'bottom-16 lg:bottom-5'
               }`}
             >
               {status === 'INCOMING_REQUEST' && activeRequest ? (
                 <IncomingRequestModal
                   request={activeRequest}
+                  offerTimeoutSec={settings.offerTimeoutSec}
                   onAccept={handleAcceptRequest}
                   onDecline={handleDeclineRequest}
                 />
@@ -2646,25 +1638,17 @@ export default function App() {
                 <TripPanels
                   status={status}
                   activeRequest={activeRequest}
-                  queuedOffer={queuedOffer}
-                  queuedAccepted={queuedAccepted}
                   currency={currency}
                   todayEarnings={todayEarnings}
-                  dailyGoal={settings.dailyGoal}
                   todayTripsCount={todayTripsCount}
-                  shiftElapsedSec={shiftElapsedSec}
-                  shiftDistanceKm={shiftDistanceKm}
                   driverScore={driverScore}
                   remainingEtaMin={remainingEtaMin}
                   remainingDistKm={remainingDistKm}
                   destinationLabel={settings.destinationFilter.targetLabel}
                   unreadChatCount={unreadChatCount}
                   openBidJobsCount={bidJobs.length}
-                  claimedScheduledRide={scheduledRides.find((r) => r.claimed) || null}
                   lastRefreshLabel={lastBackgroundSync}
                   backgroundRefreshEnabled={settings.backgroundRefresh}
-                  nextRequestWaitLeft={nextRequestWaitLeft}
-                  isRandomWait={settings.dispatchWaitSec === 0}
                   autoAccept={settings.autoAccept}
                   activeRank={activeRank}
                   rankQueuePos={rankQueuePos}
@@ -2683,7 +1667,6 @@ export default function App() {
                     setRankQueuePos(null);
                   }}
                   onOpenBidJobs={() => setShowBidJobsModal(true)}
-                  onOpenSchedule={() => setActiveTab('schedule')}
                   onOpenPreferences={() => setShowPrefs(true)}
                   onOpenDestination={() => setShowDestination(true)}
                   onClearDestination={() =>
@@ -2697,40 +1680,8 @@ export default function App() {
                     }))
                   }
                   onArrivePickup={handleArrivePickup}
-                  onRequestPinInChat={() => {
-                    if (!activeRequest) return;
-                    addToast('Pickup PIN', `Rider 4-digit PIN is ${activeRequest.pickupPin || '4892'}. Sent to chat.`, 'info');
-                    setChatMessages((prev) => [
-                      ...prev,
-                      {
-                        id: `pin-${Date.now()}`,
-                        sender: 'rider',
-                        text: `My pickup PIN is ${activeRequest.pickupPin || '4892'}.`,
-                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                      },
-                    ]);
-                  }}
-                  onStartTrip={(waitFeeAccrued, pinVerified) =>
-                    handleStartTrip(waitFeeAccrued, pinVerified)
-                  }
+                  onStartTrip={handleStartTrip}
                   onCompleteTrip={handleCompleteTrip}
-                  onAcceptQueuedOffer={() => {
-                    setQueuedAccepted(true);
-                    addToast('Next Ride Queued', 'Will auto-route after current dropoff.', 'success');
-                  }}
-                  onDeclineQueuedOffer={() => {
-                    setQueuedOffer(null);
-                    setQueuedAccepted(false);
-                  }}
-                  onToggleTripToll={() =>
-                    setActiveRequest((prev) =>
-                      prev
-                        ? prev.tollOrAirportFee && prev.tollOrAirportFee > 0
-                          ? { ...prev, tollOrAirportFee: 0, tollLabel: undefined }
-                          : { ...prev, tollOrAirportFee: 2.5, tollLabel: 'Bridge / Crossing Toll' }
-                        : prev
-                    )
-                  }
                   onOpenChat={() => {
                     setShowChat(true);
                     setUnreadChatCount(0);
@@ -2750,45 +1701,12 @@ export default function App() {
           </div>
         )}
 
-        {activeTab === 'schedule' && (
-          <ScheduledRidesView
-            rides={scheduledRides}
-            onToggleClaim={(id) => {
-              setScheduledRides((prev) =>
-                prev.map((r) => (r.id === id ? { ...r, claimed: !r.claimed } : r))
-              );
-              addToast('Scheduled Ride', 'Updated ride claim status', 'info');
-            }}
-            onStartScheduledRide={(ride) => {
-              setActiveTab('map');
-              addToast('Scheduled Ride', `Navigating to ${ride.pickupAddress}`, 'success');
-            }}
-            onRefreshSchedule={() => {
-              setScheduledRides(generateScheduledRidesNear(driverPos, currentCityId));
-              addToast('Schedule Refreshed', 'Latest airport & commuter reservations loaded', 'info');
-            }}
-          />
-        )}
-
         {activeTab === 'earnings' && (
           <EarningsView
             trips={trips}
             weeklySeries={weeklySeries}
             payoutBalance={profile.bankBalance}
             currency={currency}
-            dailyGoal={settings.dailyGoal}
-            onUpdateDailyGoal={(goal) => setSettings((s) => ({ ...s, dailyGoal: goal }))}
-            shiftElapsedSec={shiftElapsedSec}
-            shiftDistanceKm={shiftDistanceKm}
-            expenses={expenses}
-            onAddExpense={handleAddExpense}
-            onDeleteExpense={handleDeleteExpense}
-            incidents={incidents}
-            driverName={profile.fullName}
-            vehicleLabel={activeVehicle.makeModel}
-            vehiclePlate={activeVehicle.plate}
-            onReportLostItem={handleReportLostItem}
-            onSubmitCleaningClaim={handleSubmitCleaningClaim}
             onCashOut={(amt) =>
               setProfile((p) => ({
                 ...p,
@@ -2840,23 +1758,18 @@ export default function App() {
             vehicles={vehicles}
             documents={documents}
             settings={settings}
-            currency={currency}
             riderRating={riderRating}
             totalLifetimeTrips={trips.length}
             notificationPermission={notificationPermission}
-            permissionsSnapshot={permissionsSnapshot}
             lastBackgroundSync={lastBackgroundSync}
             notificationsLog={notificationsLog}
             isInsuranceExpired={isInsuranceExpired}
             onSelectVehicle={handleSelectVehicle}
-            onRechargeVehicle={handleRechargeVehicle}
-            onServiceVehicle={handleServiceVehicle}
             onUpdateSettings={(next) => setSettings((s) => ({ ...s, ...next }))}
             onOpenAccountCreation={() => setShowAccountCreation(true)}
             onSignInGoogle={handleSignInGoogle}
             onSignOutGoogle={handleSignOutGoogle}
             onOpenInsurance={() => setActiveTab('insurance')}
-            onOpenPermissionsModal={() => setShowPermissionsModal(true)}
             onEnablePushNotifications={handleEnablePush}
             onSendTestNotification={() => {
               if (notificationPermission !== 'granted') {
@@ -2879,36 +1792,34 @@ export default function App() {
 
       {/* Mobile Fixed Bottom Navigation Bar (5 tabs) */}
       {!(activeTab === 'map' && isTripActive) && (
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[420] pb-safe bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800">
-          <div className="h-16 grid grid-cols-5 items-center">
-            {mobileNavItems.map((item) => {
-              const Icon = item.icon;
-              const active = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setActiveTab(item.id)}
-                  className="flex flex-col items-center justify-center h-full min-w-[44px] active:scale-95 transition-transform"
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[420] h-16 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 items-center">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                className="flex flex-col items-center justify-center h-full min-w-[44px]"
+              >
+                <Icon
+                  className={`w-5 h-5 transition-colors ${
+                    active ? 'text-[#25B670]' : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                />
+                <span
+                  className={`text-[10px] font-bold mt-1 ${
+                    active
+                      ? 'text-slate-950 dark:text-white'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
                 >
-                  <Icon
-                    className={`w-5 h-5 transition-colors ${
-                      active ? 'text-[#25B670]' : 'text-slate-500 dark:text-slate-400'
-                    }`}
-                  />
-                  <span
-                    className={`text-[10px] font-bold mt-1 ${
-                      active
-                        ? 'text-slate-950 dark:text-white'
-                        : 'text-slate-500 dark:text-slate-400'
-                    }`}
-                  >
-                    {item.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
         </nav>
       )}
 
@@ -2960,13 +1871,7 @@ export default function App() {
           availableCategories={activeVehicle.categories}
           isInsuranceExpired={isInsuranceExpired}
           onOpenInsuranceRenewal={() => setIsInsuranceRenewalChatOpen(true)}
-          onUpdateSettings={(next) => {
-            setSettings((s) => ({ ...s, ...next }));
-            if (next.dispatchWaitSec !== undefined) {
-              dispatchTriggeredRef.current = false;
-              setNextRequestWaitLeft(resolveDispatchWaitSeconds(next.dispatchWaitSec));
-            }
-          }}
+          onUpdateSettings={(next) => setSettings((s) => ({ ...s, ...next }))}
           onClose={() => setShowPrefs(false)}
         />
       )}
@@ -3023,36 +1928,7 @@ export default function App() {
         />
       )}
 
-      {showSafetyModal && (
-        <SafetyModal
-          driverPos={driverPos}
-          vehicleLabel={activeVehicle.makeModel}
-          vehiclePlate={activeVehicle.plate}
-          activeTripLabel={activeRequest ? `${activeRequest.pickupAddress} → ${activeRequest.dropoffAddress}` : undefined}
-          activeTripId={activeRequest?.id}
-          riderName={activeRequest?.riderName}
-          incidents={incidents}
-          onSaveIncident={handleSaveIncident}
-          onClose={() => setShowSafetyModal(false)}
-        />
-      )}
-
-      {showPermissionsModal && (
-        <PermissionsPromptModal
-          permissions={permissionsSnapshot}
-          onUpdatePermissions={applyPermissionResult}
-          onClose={() => setShowPermissionsModal(false)}
-        />
-      )}
-
-      <EndOfShiftSummaryModal
-        summary={shiftSummary}
-        onClose={() => setShiftSummary(null)}
-      />
-
-      <OfflineIndicator />
-
-      <BootScreen isVisible={showBootScreen} onComplete={handleBootComplete} />
+      {showSafetyModal && <SafetyModal onClose={() => setShowSafetyModal(false)} />}
     </div>
   );
 }

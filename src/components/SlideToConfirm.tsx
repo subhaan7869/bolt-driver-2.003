@@ -38,13 +38,6 @@ export const SlideToConfirm: React.FC<SlideToConfirmProps> = ({
     setIsDragging(false);
     if (maxTravelRef.current > 0 && dragX >= maxTravelRef.current * 0.72) {
       setDragX(maxTravelRef.current);
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        try {
-          navigator.vibrate(15);
-        } catch {
-          // Ignore vibrate restrictions
-        }
-      }
       setTimeout(() => {
         onConfirm();
         setDragX(0);
@@ -74,7 +67,7 @@ export const SlideToConfirm: React.FC<SlideToConfirmProps> = ({
   return (
     <div
       ref={trackRef}
-      className={`relative h-14 w-full rounded-2xl overflow-hidden select-none flex items-center justify-center shadow-sm touch-pan-y ${bgClass}`}
+      className={`relative h-14 w-full rounded-2xl overflow-hidden select-none flex items-center justify-center shadow-sm ${bgClass}`}
     >
       {/* Subtle progress fill */}
       <div
@@ -84,7 +77,7 @@ export const SlideToConfirm: React.FC<SlideToConfirmProps> = ({
 
       {/* Centered Instruction Label */}
       <span
-        className="text-[15px] font-bold tracking-tight pointer-events-none transition-opacity px-14 text-center truncate"
+        className="text-[15px] font-bold tracking-tight pointer-events-none transition-opacity"
         style={{ opacity: 1 - progressRatio * 0.85 }}
       >
         {label}
@@ -94,7 +87,7 @@ export const SlideToConfirm: React.FC<SlideToConfirmProps> = ({
       <button
         type="button"
         onClick={onConfirm}
-        className="absolute right-1.5 min-w-[44px] min-h-[40px] px-2.5 text-xs font-bold opacity-75 hover:opacity-100 active:scale-95 rounded-xl flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+        className="absolute right-2 px-2.5 py-1.5 text-xs font-semibold opacity-70 hover:opacity-100 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
         title={`Confirm: ${label}`}
         aria-label={label}
       >
