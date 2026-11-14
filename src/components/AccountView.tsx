@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
 import {
+  BatteryCharging,
   Bell,
   Car,
   Check,
   ChevronRight,
   Cloud,
+  Compass,
   FileCheck2,
+  Flame,
+  Fuel,
+  Gauge,
   HelpCircle,
   LogIn,
   LogOut,
@@ -19,12 +24,14 @@ import {
   User,
   UserPlus,
   Volume2,
+  Wrench,
   X,
 } from 'lucide-react';
 import { getCityById } from '../data/worldMapData';
 import { DriverDocument, DriverProfile, DriverSettings, Vehicle } from '../types/driver';
 import { NotificationPermissionState } from '../utils/notifications';
 import { AppPermissionsSnapshot } from '../utils/permissions';
+import { formatWholeMiles, kmToMi } from '../utils/units';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface AccountViewProps {
@@ -33,6 +40,7 @@ interface AccountViewProps {
   vehicles: Vehicle[];
   documents: DriverDocument[];
   settings: DriverSettings;
+  currency: string;
   riderRating: number;
   totalLifetimeTrips: number;
   notificationPermission: NotificationPermissionState;
@@ -41,6 +49,8 @@ interface AccountViewProps {
   notificationsLog: string[];
   isInsuranceExpired: boolean;
   onSelectVehicle: (vehicleId: string) => void;
+  onRechargeVehicle: (vehicleId: string) => void;
+  onServiceVehicle: (vehicleId: string, kind: 'service' | 'tyres') => void;
   onUpdateSettings: (next: Partial<DriverSettings>) => void;
   onOpenAccountCreation: () => void;
   onSignInGoogle: () => void;
@@ -66,6 +76,8 @@ export const AccountView: React.FC<AccountViewProps> = ({
   notificationsLog,
   isInsuranceExpired,
   onSelectVehicle,
+  onRechargeVehicle,
+  onServiceVehicle,
   onUpdateSettings,
   onOpenAccountCreation,
   onSignInGoogle,
@@ -85,6 +97,24 @@ export const AccountView: React.FC<AccountViewProps> = ({
 
   const activeVehicle = vehicles.find((v) => v.isActive) || vehicles[0];
   const city = getCityById(profile.cityId);
+
+  const rangePct = Math.min(
+    100,
+    Math.max(0, Math.round((activeVehicle.rangeKm / Math.max(1, activeVehicle.maxRangeKm)) * 100))
+  );
+  const isLowRange = activeVehicle.rangeKm < 95;
+  const kmToService = Math.max(0, activeVehicle.nextServiceKm - activeVehicle.odometerKm);
+  const kmToTyres = Math.max(0, activeVehicle.tyreCheckKm - activeVehicle.odometerKm);
+  const serviceDueSoon = kmToService <= 500;
+  const tyresDueSoon = kmToTyres <= 500;
+
+  const daysUntil = (iso: string): number | null => {
+    const dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return null;
+    return Math.ceil((dt.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  };
+  const motDaysLeft = daysUntil(profile.documentExpiries['Vehicle MOT']);
+  const insDaysLeft = daysUntil(profile.documentExpiries['Vehicle Insurance']);
 
   return (
     <div className="w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:pb-8">
@@ -193,7 +223,7 @@ export const AccountView: React.FC<AccountViewProps> = ({
                   ? 'Expired — Renew to unlock passenger rides'
                   : `Plan: ${profile.insuranceCoverage.toUpperCase()} · Exp ${
                       profile.documentExpiries['Vehicle Insurance']
-                    }`}
+                    }${insDaysLeft !== null ? ` (${insDaysLeft}d left)` : ''}`}
               </div>
             </div>
           </div>
@@ -202,18 +232,18 @@ export const AccountView: React.FC<AccountViewProps> = ({
 
         {/* Vehicles & Settings Split */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Vehicles Switcher */}
+          {/* Vehicles Switcher + EV/Fuel Range Guard + Maintenance Tracker */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-extrabold text-slate-950 dark:text-white">
-                Vehicles
+                Fleet, Range &amp; Maintenance
               </h2>
               <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                 Active: {activeVehicle.plate}
               </span>
             </div>
 
-            <div className="rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 aspect-[4/3] max-h-48 w-full flex items-center justify-center">
+            <div className="rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 aspect-[4/3] max-h-44 w-full flex items-center justify-center">
               {!carImageError ? (
                 <img
                   src={activeVehicle.imageUrl}
@@ -228,6 +258,130 @@ export const AccountView: React.FC<AccountViewProps> = ({
                   <span className="text-xs font-semibold">{activeVehicle.makeModel}</span>
                 </div>
               )}
+            </div>
+
+            {/* EV Battery / Fuel Range Guard */}
+            <div
+              className={`p-3.5 rounded-2xl border space-y-2.5 ${
+                isLowRange
+                  ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800'
+                  : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200/70 dark:border-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  {activeVehicle.fuelType === 'Electric' ? (
+                    <BatteryCharging
+                      className={`w-4 h-4 shrink-0 ${
+                        isLowRange ? 'text-amber-600' : 'text-[#25B670]'
+                      }`}
+                    />
+                  ) : (
+                    <Fuel
+                      className={`w-4 h-4 shrink-0 ${
+                        isLowRange ? 'text-amber-600' : 'text-[#25B670]'
+                      }`}
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+                      {activeVehicle.fuelType === 'Electric'
+                        ? 'EV Battery Range Guard'
+                        : 'Fuel Range Guard'}
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono-num">
+                      {Math.round(kmToMi(activeVehicle.rangeKm))} / {Math.round(kmToMi(activeVehicle.maxRangeKm))} mi ({rangePct}%)
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRechargeVehicle(activeVehicle.id)}
+                  className="px-3 h-9 rounded-xl bg-[#34D186] hover:bg-[#29BE77] text-slate-950 text-xs font-extrabold whitespace-nowrap shrink-0"
+                >
+                  {activeVehicle.fuelType === 'Electric' ? 'Recharge' : 'Refuel'}
+                </button>
+              </div>
+              <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                <div
+                  style={{ width: `${rangePct}%` }}
+                  className={`h-full rounded-full transition-all ${
+                    isLowRange ? 'bg-amber-500' : 'bg-[#34D186]'
+                  }`}
+                />
+              </div>
+              {isLowRange && (
+                <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                  Range under {Math.round(kmToMi(95))} mi — Long-distance Bolt City dispatches paused until topped up.
+                </div>
+              )}
+            </div>
+
+            {/* Vehicle Maintenance & Odometer Reminders */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Gauge className="w-4 h-4 text-[#25B670]" />
+                  Odometer &amp; Maintenance
+                </span>
+                <span className="text-xs font-extrabold font-mono-num text-slate-700 dark:text-slate-200">
+                  {formatWholeMiles(activeVehicle.odometerKm)}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div
+                  className={`p-2.5 rounded-xl border ${
+                    serviceDueSoon
+                      ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <div className="text-slate-500 dark:text-slate-400">Next Service</div>
+                  <div className="font-extrabold font-mono-num text-slate-950 dark:text-white mt-0.5">
+                    {kmToService === 0 ? 'Due now!' : `In ${formatWholeMiles(kmToService)}`}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onServiceVehicle(activeVehicle.id, 'service')}
+                    className="mt-1.5 text-[10px] font-extrabold text-[#25B670] hover:underline inline-flex items-center gap-1"
+                  >
+                    <Wrench className="w-3 h-3" />
+                    Mark Serviced
+                  </button>
+                </div>
+
+                <div
+                  className={`p-2.5 rounded-xl border ${
+                    tyresDueSoon
+                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <div className="text-slate-500 dark:text-slate-400">Tyre Rotation</div>
+                  <div className="font-extrabold font-mono-num text-slate-950 dark:text-white mt-0.5">
+                    {kmToTyres === 0 ? 'Inspect now!' : `In ${formatWholeMiles(kmToTyres)}`}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onServiceVehicle(activeVehicle.id, 'tyres')}
+                    className="mt-1.5 text-[10px] font-extrabold text-[#25B670] hover:underline inline-flex items-center gap-1"
+                  >
+                    <Wrench className="w-3 h-3" />
+                    Reset Tyres
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1">
+                <span>
+                  MOT expires {profile.documentExpiries['Vehicle MOT']}
+                  {motDaysLeft !== null ? ` (${motDaysLeft}d)` : ''}
+                </span>
+                <span>
+                  Insurance {insDaysLeft !== null ? `${insDaysLeft}d left` : 'Active'}
+                </span>
+              </div>
             </div>
 
             <div className="space-y-2.5">
@@ -247,7 +401,7 @@ export const AccountView: React.FC<AccountViewProps> = ({
                       {veh.makeModel}
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      {veh.plate} · {veh.year} {veh.fuelType} · {veh.categories.join(', ')}
+                      {veh.plate} · {veh.year} {veh.fuelType} · {Math.round(kmToMi(veh.rangeKm))} mi range
                     </div>
                   </div>
                   <div
@@ -264,11 +418,11 @@ export const AccountView: React.FC<AccountViewProps> = ({
             </div>
           </div>
 
-          {/* App, Sound & Background Refresh */}
+          {/* App, Navigation & Background Refresh */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-extrabold text-slate-950 dark:text-white">
-                App, alerts &amp; background sync
+                App, navigation &amp; sync
               </h2>
               <span className="text-[11px] font-bold text-[#25B670]">
                 Remembered per driver account
@@ -276,6 +430,70 @@ export const AccountView: React.FC<AccountViewProps> = ({
             </div>
 
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {/* Heading-Up vs North-Up Nav Mode */}
+              <div className="py-3.5 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200">
+                    <Compass className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-900 dark:text-white">
+                      Heading-up navigation
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Rotate map in direction of travel during active trips
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.headingUpNav}
+                  onClick={() => onUpdateSettings({ headingUpNav: !settings.headingUpNav })}
+                  className={`w-12 h-7 rounded-full transition-colors p-1 shrink-0 ${
+                    settings.headingUpNav ? 'bg-[#34D186]' : 'bg-slate-300 dark:bg-slate-700'
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                      settings.headingUpNav ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* D3 Demand Heatmap Default */}
+              <div className="py-3.5 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200">
+                    <Flame className="w-5 h-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-900 dark:text-white">
+                      D3 Demand Heatmap overlay
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Show hourly historical peaks &amp; +1–2h hotspots on map
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.showHeatmap}
+                  onClick={() => onUpdateSettings({ showHeatmap: !settings.showHeatmap })}
+                  className={`w-12 h-7 rounded-full transition-colors p-1 shrink-0 ${
+                    settings.showHeatmap ? 'bg-[#34D186]' : 'bg-slate-300 dark:bg-slate-700'
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                      settings.showHeatmap ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
               {/* Device Permissions Manager */}
               <div className="py-3.5 space-y-2.5">
                 <div className="flex items-center justify-between gap-3">

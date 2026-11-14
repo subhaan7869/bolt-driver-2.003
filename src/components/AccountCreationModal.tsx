@@ -161,6 +161,11 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
       categories,
       imageUrl: '/src/assets/images/vehicle_sedan_1794515087800.jpg',
       isActive: true,
+      rangeKm: 400,
+      maxRangeKm: 500,
+      odometerKm: 12000,
+      nextServiceKm: 25000,
+      tyreCheckKm: 20000,
     };
 
     const documents: DriverDocument[] = requiredDocs.map((d) => ({
