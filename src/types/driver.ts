@@ -196,6 +196,8 @@ export interface DriverProfile {
   additionalDrivers: string[];
   documentsUploaded: boolean;
   faceVerified: boolean;
+  activeVehicleId?: string;
+  settings?: Partial<DriverSettings>;
 }
 
 export interface Vehicle {
@@ -235,7 +237,7 @@ export interface DriverSettings {
   autoAccept: boolean;
   acceptCash: boolean;
   allowBidOffers: boolean;
-  offerTimeoutSec: 60 | 120 | 180 | 300;
+  dispatchWaitSec: 60 | 120 | 180 | 300;
   minFareFilter: number;
   maxPickupKm: number;
   minRiderRating: number;

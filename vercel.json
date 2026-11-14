@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/tiles/(.*)",
+      "destination": "/api/tiles?path=$1"
+    },
+    {
+      "source": "/((?!api/|assets/|firebase-messaging-sw\\.js).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

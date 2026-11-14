@@ -29,8 +29,8 @@ messaging.onBackgroundMessage((payload) => {
 
   return self.registration.showNotification(title, {
     body,
-    icon: 'https://www.gstatic.com/images/branding/product/1x/googleg_48dp.png',
-    badge: 'https://www.gstatic.com/images/branding/product/1x/googleg_48dp.png',
+    icon: '/assets/aistudio/image_adf30014.png',
+    badge: '/assets/aistudio/image_adf30014.png',
     vibrate: [200, 100, 200, 100, 200],
     tag: orderId || 'new-order',
     renotify: true,

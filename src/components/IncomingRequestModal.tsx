@@ -14,18 +14,18 @@ import { RideRequest } from '../types/driver';
 
 interface IncomingRequestModalProps {
   request: RideRequest;
-  offerTimeoutSec: number;
   onAccept: (customFare?: number) => void;
   onDecline: () => void;
 }
 
+const REQUEST_ACCEPT_WINDOW_SEC = 25;
+
 export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
   request,
-  offerTimeoutSec,
   onAccept,
   onDecline,
 }) => {
-  const safeTimeout = Math.max(60, Math.min(300, offerTimeoutSec || 120));
+  const safeTimeout = REQUEST_ACCEPT_WINDOW_SEC;
   const [secondsLeft, setSecondsLeft] = useState(safeTimeout);
   const [bidExpanded, setBidExpanded] = useState(request.category === 'Bolt Flex');
   const [bidAmount, setBidAmount] = useState<number>(() => Math.ceil(request.estimatedFare + 2));
@@ -85,22 +85,19 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
   }, [bidState, bidAmount, request.estimatedFare, onAccept]);
 
   const progressPct = (secondsLeft / safeTimeout) * 100;
-  const mins = Math.floor(secondsLeft / 60)
-    .toString()
-    .padStart(2, '0');
-  const secs = (secondsLeft % 60).toString().padStart(2, '0');
 
   return (
-    <div className="w-full bg-white dark:bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden">
-      {/* Countdown Progress Strip (1 to 5 minutes) */}
-      <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800">
+    <div className="w-full bg-white dark:bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden max-h-[76dvh] lg:max-h-none flex flex-col">
+      {/* Accept Window Progress Strip */}
+      <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 shrink-0">
         <div
           className="h-full bg-[#34D186] transition-all duration-1000 ease-linear"
           style={{ width: `${progressPct}%` }}
         />
       </div>
 
-      <div className="p-5 space-y-4">
+      <div className="px-4 pt-2.5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-5 space-y-3.5 overflow-y-auto">
+        <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto lg:hidden" />
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300">
@@ -280,12 +277,12 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
                       <div className="flex items-center gap-1 bg-white dark:bg-slate-900 rounded-xl p-1 border border-slate-200 dark:border-slate-700">
                         <button
                           type="button"
                           onClick={() => setBidAmount((b) => Math.max(5, b - 1))}
-                          className="w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
+                          className="w-10 h-10 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
                         >
                           -1
                         </button>
@@ -296,14 +293,14 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
                         <button
                           type="button"
                           onClick={() => setBidAmount((b) => b + 1)}
-                          className="w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
+                          className="w-10 h-10 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
                         >
                           +1
                         </button>
                         <button
                           type="button"
                           onClick={() => setBidAmount((b) => b + 5)}
-                          className="w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
+                          className="w-10 h-10 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
                         >
                           +5
                         </button>
@@ -312,7 +309,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setBidState('waiting')}
-                        className="flex-1 h-10 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-extrabold text-xs"
+                        className="flex-1 min-w-[110px] h-12 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-extrabold text-xs"
                       >
                         Send Bid
                       </button>
@@ -333,7 +330,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           >
             <span>Accept Ride</span>
             <span className="font-mono-num text-sm bg-slate-950/15 px-2.5 py-1 rounded-lg">
-              {mins}:{secs}
+              {secondsLeft}s
             </span>
           </button>
         )}

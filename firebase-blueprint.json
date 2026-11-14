@@ -79,6 +79,15 @@
           "type": "string",
           "description": "Optional Firebase Cloud Messaging registration token",
           "maxLength": 512
+        },
+        "activeVehicleId": {
+          "type": "string",
+          "description": "ID of the driver's currently selected active vehicle",
+          "maxLength": 64
+        },
+        "settings": {
+          "type": "object",
+          "description": "Per-user remembered driver preferences, trip filters, theme, and notification settings"
         }
       },
       "required": ["uid", "fullName", "email"]

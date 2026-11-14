@@ -21,8 +21,8 @@ export const ActivityView: React.FC<ActivityViewProps> = ({
   const scoreOffset = scoreStrokeDash * (1 - driverScore / 100);
 
   return (
-    <div className="w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-24 lg:pb-8">
-      <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+    <div className="w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:pb-8">
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 space-y-5 sm:space-y-6">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-950 dark:text-white tracking-tight">
             Driver Activity
@@ -80,39 +80,39 @@ export const ActivityView: React.FC<ActivityViewProps> = ({
           </div>
 
           {/* Key Ratios */}
-          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800 grid grid-cols-3 gap-4 items-center">
-            <div className="space-y-1">
-              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-6 border border-slate-200/80 dark:border-slate-800 grid grid-cols-3 gap-2 sm:gap-4 items-center">
+            <div className="space-y-1 min-w-0">
+              <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">
                 Rider Rating
               </div>
-              <div className="flex items-center gap-1.5 text-2xl sm:text-3xl font-extrabold text-slate-950 dark:text-white font-mono-num">
+              <div className="flex items-center gap-1 text-xl sm:text-3xl font-extrabold text-slate-950 dark:text-white font-mono-num">
                 <span>{riderRating.toFixed(2)}</span>
-                <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+                <Star className="w-4 h-4 sm:w-5 sm:h-5 fill-amber-400 text-amber-400 shrink-0" />
               </div>
-              <div className="text-xs text-slate-400">Last 500 trips</div>
+              <div className="text-[11px] sm:text-xs text-slate-400 truncate">Last 500 trips</div>
             </div>
 
-            <div className="space-y-1 border-l border-slate-100 dark:border-slate-800 pl-4">
-              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <div className="space-y-1 border-l border-slate-100 dark:border-slate-800 pl-2.5 sm:pl-4 min-w-0">
+              <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">
                 Acceptance
               </div>
-              <div className="text-2xl sm:text-3xl font-extrabold text-slate-950 dark:text-white font-mono-num">
+              <div className="text-xl sm:text-3xl font-extrabold text-slate-950 dark:text-white font-mono-num">
                 {acceptanceRate}%
               </div>
-              <div className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
+              <div className="text-[11px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-semibold truncate">
                 Excellent
               </div>
             </div>
 
-            <div className="space-y-1 border-l border-slate-100 dark:border-slate-800 pl-4">
-              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <div className="space-y-1 border-l border-slate-100 dark:border-slate-800 pl-2.5 sm:pl-4 min-w-0">
+              <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">
                 Completion
               </div>
-              <div className="text-2xl sm:text-3xl font-extrabold text-slate-950 dark:text-white font-mono-num">
+              <div className="text-xl sm:text-3xl font-extrabold text-slate-950 dark:text-white font-mono-num">
                 {completionRate}%
               </div>
-              <div className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-                Low cancellations
+              <div className="text-[11px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-semibold truncate">
+                Low cancels
               </div>
             </div>
           </div>

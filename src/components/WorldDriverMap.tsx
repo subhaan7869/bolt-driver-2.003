@@ -80,6 +80,8 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   const surgeLayerRef = useRef<L.LayerGroup | null>(null);
   const [followDriver, setFollowDriver] = useState(true);
   const [showCityPicker, setShowCityPicker] = useState(false);
+  const [tileSourceTier, setTileSourceTier] = useState<0 | 1 | 2>(0);
+  const proxyUnavailableRef = useRef(false);
 
   // Initialize Leaflet World Map once
   useEffect(() => {
@@ -109,23 +111,63 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     };
   }, []);
 
-  // Update Tile Layer for Light / Night Map Theme via Server Proxy
+  // Update Tile Layer for Light / Night Map Theme (Server Proxy -> Direct CARTO CDN -> OSM fallback)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     if (tileLayerRef.current) {
       map.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = null;
     }
 
-    const tileUrl = darkMode
-      ? '/api/tiles/dark_all/{z}/{x}/{y}{r}.png'
-      : '/api/tiles/voyager/{z}/{x}/{y}{r}.png';
+    const effectiveTier: 0 | 1 | 2 =
+      tileSourceTier === 0 && proxyUnavailableRef.current ? 1 : tileSourceTier;
 
-    tileLayerRef.current = L.tileLayer(tileUrl, {
-      maxZoom: 19,
-    }).addTo(map);
-  }, [darkMode]);
+    const rawViteKey = (import.meta.env.VITE_CARTO_API_KEY || '').trim();
+    const keyQuery =
+      rawViteKey && rawViteKey !== 'MY_CARTO_API_KEY'
+        ? `?key=${encodeURIComponent(rawViteKey)}`
+        : '';
+
+    const style = darkMode ? 'dark_all' : 'voyager';
+    const cartoDirectPath = darkMode ? 'dark_all' : 'rastertiles/voyager';
+
+    let tileUrl = `/api/tiles/${style}/{z}/{x}/{y}{r}.png`;
+    let options: L.TileLayerOptions = { maxZoom: 19 };
+
+    if (effectiveTier === 1) {
+      tileUrl = `https://{s}.basemaps.cartocdn.com/${cartoDirectPath}/{z}/{x}/{y}{r}.png${keyQuery}`;
+      options = { maxZoom: 19, subdomains: 'abcd' };
+    } else if (effectiveTier === 2) {
+      tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      options = { maxZoom: 19 };
+    }
+
+    let loadedAnyTile = false;
+    let errorCount = 0;
+
+    const layer = L.tileLayer(tileUrl, options);
+    layer.on('tileload', () => {
+      loadedAnyTile = true;
+      errorCount = 0;
+    });
+    layer.on('tileerror', () => {
+      errorCount += 1;
+      if (!loadedAnyTile && errorCount >= 2 && effectiveTier < 2) {
+        if (effectiveTier === 0) {
+          proxyUnavailableRef.current = true;
+        }
+        setTileSourceTier((prev) => {
+          const base = prev === 0 && proxyUnavailableRef.current ? 1 : prev;
+          return base < 2 ? ((base + 1) as 0 | 1 | 2) : prev;
+        });
+      }
+    });
+
+    layer.addTo(map);
+    tileLayerRef.current = layer;
+  }, [darkMode, tileSourceTier]);
 
   // Update Driver Vehicle Puck Marker
   useEffect(() => {
@@ -381,29 +423,29 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
 
       {/* Top Turn-by-Turn Navigation Banner (Sound Effects Mute/Unmute only, no voice) */}
       {showTurnBanner && (
-        <div className="absolute top-3.5 left-3.5 right-[68px] sm:left-4 sm:right-auto sm:w-[410px] z-[400] pointer-events-auto">
-          <div className="bg-[#111820] text-white rounded-2xl p-3.5 shadow-xl border border-white/10 flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-[#34D186] text-slate-950 flex items-center justify-center shrink-0">
+        <div className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-2.5 right-[52px] sm:left-4 sm:right-auto sm:w-[400px] z-[400] pointer-events-auto">
+          <div className="bg-[#111820] text-white rounded-2xl p-2.5 sm:p-3.5 shadow-xl border border-white/10 flex items-center gap-2 sm:gap-3">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#34D186] text-slate-950 flex items-center justify-center shrink-0">
               {currentManeuver?.direction === 'left' ? (
-                <CornerUpLeft className="w-6 h-6 stroke-[2.5]" />
+                <CornerUpLeft className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
               ) : currentManeuver?.direction === 'right' ? (
-                <CornerUpRight className="w-6 h-6 stroke-[2.5]" />
+                <CornerUpRight className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
               ) : (
-                <Navigation className="w-6 h-6 stroke-[2.5]" />
+                <Navigation className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-2">
-                <span className="text-lg font-extrabold font-mono-num tracking-tight">
+              <div className="flex items-baseline gap-1.5 sm:gap-2">
+                <span className="text-sm sm:text-lg font-extrabold font-mono-num tracking-tight">
                   {distToManeuverMeters >= 1000
                     ? `${(distToManeuverMeters / 1000).toFixed(1)} km`
                     : `${distToManeuverMeters} m`}
                 </span>
-                <span className="text-xs text-emerald-400 font-semibold">
+                <span className="text-[11px] sm:text-xs text-emerald-400 font-semibold whitespace-nowrap">
                   {status === 'EN_ROUTE_PICKUP' ? 'To pickup' : 'To destination'}
                 </span>
               </div>
-              <p className="text-xs sm:text-sm text-slate-200 font-medium truncate">
+              <p className="text-[11px] sm:text-sm text-slate-200 font-medium truncate">
                 {currentManeuver?.instruction ||
                   (status === 'EN_ROUTE_PICKUP'
                     ? `Head toward ${activeRequest?.pickupAddress}`
@@ -414,43 +456,45 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
               type="button"
               onClick={onToggleSound}
               aria-label={soundEnabled ? 'Mute navigation sounds' : 'Unmute navigation sounds'}
-              className="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white shrink-0 transition-colors"
+              className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 flex items-center justify-center text-white shrink-0 transition-all"
               title={soundEnabled ? 'Navigation sounds on' : 'Navigation sounds muted'}
             >
-              {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5 text-slate-400" />}
+              {soundEnabled ? <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" /> : <VolumeX className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400" />}
             </button>
           </div>
         </div>
       )}
 
-      {/* Right Floating Map Controls — clean non-overlapping vertical rail */}
+      {/* Right Floating Map Controls — compact on phones, non-overlapping vertical rail */}
       <div
-        className={`absolute right-3.5 z-[420] flex flex-col gap-2 ${
-          showTurnBanner ? 'top-3.5' : 'top-[72px] lg:top-3.5'
+        className={`absolute right-2.5 sm:right-3 z-[420] flex flex-col gap-1.5 sm:gap-2 ${
+          showTurnBanner
+            ? 'top-[max(0.75rem,env(safe-area-inset-top))]'
+            : 'top-[max(3.75rem,calc(env(safe-area-inset-top)+3rem))] lg:top-3.5'
         }`}
       >
         <button
           type="button"
           onClick={onOpenSafety}
           aria-label="Safety Toolkit"
-          className="w-11 h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-sky-600 dark:text-sky-400 hover:scale-105 active:scale-95 transition-transform"
+          className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-sky-600 dark:text-sky-400 hover:scale-105 active:scale-95 transition-transform"
           title="Safety Toolkit"
         >
-          <ShieldAlert className="w-5 h-5" />
+          <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
 
         <button
           type="button"
           onClick={onRequestLiveGps}
           aria-label="Use live GPS location"
-          className={`w-11 h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center transition-all ${
+          className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center active:scale-95 transition-all ${
             isLiveGps
               ? 'bg-sky-600 text-white border-sky-500'
               : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-slate-700'
           }`}
           title={gpsLoading ? 'Locating GPS...' : 'Use Live GPS Location'}
         >
-          <LocateFixed className={`w-5 h-5 ${gpsLoading ? 'animate-spin' : ''}`} />
+          <LocateFixed className={`w-4 h-4 sm:w-5 sm:h-5 ${gpsLoading ? 'animate-spin' : ''}`} />
         </button>
 
         <div className="relative">
@@ -458,37 +502,44 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
             type="button"
             onClick={() => setShowCityPicker((s) => !s)}
             aria-label="Switch world city"
-            className="w-11 h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform"
+            className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:scale-105 active:scale-95 transition-transform"
             title={`World Map City: ${currentCityName}`}
           >
-            <Globe className="w-5 h-5" />
+            <Globe className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
           {showCityPicker && (
-            <div className="absolute right-14 top-0 w-52 z-[450] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-2 space-y-1">
-              <div className="px-2.5 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wide">
-                World Cities
+            <>
+              <div
+                className="fixed inset-0 z-[440]"
+                onClick={() => setShowCityPicker(false)}
+                aria-hidden="true"
+              />
+              <div className="absolute right-11 sm:right-13 top-0 w-44 sm:w-52 max-h-[42dvh] overflow-y-auto z-[450] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 sm:p-2 space-y-0.5 sm:space-y-1">
+                <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                  World Cities
+                </div>
+                {WORLD_CITIES.map((city) => (
+                  <button
+                    key={city.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectCity(city.id);
+                      setFollowDriver(true);
+                      setShowCityPicker(false);
+                    }}
+                    className={`w-full min-h-[36px] sm:min-h-[42px] px-2.5 py-1.5 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-colors ${
+                      !isLiveGps && currentCityId === city.id
+                        ? 'bg-[#34D186]/15 text-slate-950 dark:text-white'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <span>{city.name}</span>
+                    <span className="text-[11px] text-slate-400 font-medium">{city.currency.trim()}</span>
+                  </button>
+                ))}
               </div>
-              {WORLD_CITIES.map((city) => (
-                <button
-                  key={city.id}
-                  type="button"
-                  onClick={() => {
-                    onSelectCity(city.id);
-                    setFollowDriver(true);
-                    setShowCityPicker(false);
-                  }}
-                  className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-bold flex items-center justify-between transition-colors ${
-                    !isLiveGps && currentCityId === city.id
-                      ? 'bg-[#34D186]/15 text-slate-950 dark:text-white'
-                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <span>{city.name}</span>
-                  <span className="text-[11px] text-slate-400 font-medium">{city.currency.trim()}</span>
-                </button>
-              ))}
-            </div>
+            </>
           )}
         </div>
 
@@ -496,14 +547,14 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
           type="button"
           onClick={handleRecenter}
           aria-label="Recenter map on vehicle"
-          className={`w-11 h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center transition-all ${
+          className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center transition-all ${
             followDriver
               ? 'bg-[#34D186] text-slate-950 border-[#28B872]'
               : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-slate-700'
           }`}
           title="Recenter on Driver"
         >
-          <Compass className="w-5 h-5" />
+          <Compass className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
 
         <div className="hidden sm:flex flex-col rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 overflow-hidden">
