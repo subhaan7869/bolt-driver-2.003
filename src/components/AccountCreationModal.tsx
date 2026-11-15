@@ -151,6 +151,7 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
       faceVerified: true,
     };
 
+    const maxRange = fuelType === 'Electric' ? 420 : fuelType === 'Hybrid' ? 680 : 620;
     const vehicle: Vehicle = {
       id: `veh-${Date.now()}`,
       makeModel: cleanModel,
@@ -161,6 +162,11 @@ export const AccountCreationModal: React.FC<AccountCreationModalProps> = ({
       categories,
       imageUrl: '/src/assets/images/vehicle_sedan_1794515087800.jpg',
       isActive: true,
+      rangeKm: maxRange,
+      maxRangeKm: maxRange,
+      odometerKm: 12000,
+      nextServiceKm: 22000,
+      tyreCheckKm: 18000,
     };
 
     const documents: DriverDocument[] = requiredDocs.map((d) => ({

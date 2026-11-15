@@ -99,3 +99,42 @@
     animation: none;
   }
 }
+
+/* Night-mode navigation cartography filter on tile layer only (keeps routes/pins vivid) */
+.bolt-dark-tiles .leaflet-tile-pane {
+  filter: invert(92%) hue-rotate(180deg) brightness(93%) contrast(92%) saturate(85%);
+}
+
+/* Print-friendly PDF / Receipt Summary styles */
+.print-only-receipt {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only-receipt {
+    display: block !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+}
+
+

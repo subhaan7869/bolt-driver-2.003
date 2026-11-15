@@ -3,14 +3,17 @@ import {
   CampaignQuest,
   CityPreset,
   CompletedTrip,
+  DistrictDemandZone,
   DriverDocument,
   LatLng,
   ManeuverStep,
   PaymentMethod,
   RideCategory,
   RideRequest,
+  ScheduledRide,
   SurgeZone,
   TaxiRank,
+  TripStop,
   Vehicle,
 } from '../types/driver';
 
@@ -38,9 +41,9 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Reading Station Plaza', area: 'Reading · Out of City', lat: 51.4587, lng: -0.9718, distanceKm: 64 },
     ],
     ranks: [
-      { id: 'rank-ldn-kx', name: "King's Cross Eurostar Rank", area: 'St Pancras', lat: 51.5315, lng: -0.1261 },
-      { id: 'rank-ldn-pad', name: 'Paddington Express Rank', area: 'Paddington', lat: 51.5162, lng: -0.1769 },
-      { id: 'rank-ldn-cw', name: 'Canary Wharf Jubilee Rank', area: 'Docklands', lat: 51.5048, lng: -0.0195 },
+      { id: 'rank-ldn-lhr', name: 'Heathrow Terminal 5 Hub', area: 'Airport Express', lat: 51.5162, lng: -0.1769, hubType: 'airport' },
+      { id: 'rank-ldn-kx', name: "King's Cross Eurostar Rank", area: 'St Pancras', lat: 51.5315, lng: -0.1261, hubType: 'station' },
+      { id: 'rank-ldn-wem', name: 'Wembley & O2 Event Rank', area: 'Docklands', lat: 51.5048, lng: -0.0195, hubType: 'stadium' },
     ],
   },
   {
@@ -63,9 +66,9 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Rakvere Central Square', area: 'Rakvere · Out of City', lat: 59.3464, lng: 26.3558, distanceKm: 98 },
     ],
     ranks: [
-      { id: 'rank-tll-air', name: 'Tallinn Airport (TLL) Rank', area: 'Ülemiste', lat: 59.4152, lng: 24.8315 },
-      { id: 'rank-tll-port', name: 'Port Terminal A Rank', area: 'Sadama', lat: 59.4442, lng: 24.7642 },
-      { id: 'rank-tll-balt', name: 'Balti Jaam Station Rank', area: 'Kalamaja', lat: 59.4404, lng: 24.7372 },
+      { id: 'rank-tll-air', name: 'Tallinn Airport (TLL) Rank', area: 'Ülemiste', lat: 59.4152, lng: 24.8315, hubType: 'airport' },
+      { id: 'rank-tll-port', name: 'Port Terminal A Rank', area: 'Sadama', lat: 59.4442, lng: 24.7642, hubType: 'station' },
+      { id: 'rank-tll-arena', name: 'Unibet Arena Event Rank', area: 'Haabersti', lat: 59.4263, lng: 24.6478, hubType: 'stadium' },
     ],
   },
   {
@@ -88,9 +91,9 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Leipzig Hauptbahnhof', area: 'Leipzig · Out of City', lat: 51.3455, lng: 12.3818, distanceKm: 189 },
     ],
     ranks: [
-      { id: 'rank-ber-hbf', name: 'Hauptbahnhof Taxi Rank', area: 'Moabit', lat: 52.5258, lng: 13.3688 },
-      { id: 'rank-ber-alex', name: 'Alexanderplatz Rank', area: 'Mitte', lat: 52.5212, lng: 13.4148 },
-      { id: 'rank-ber-ku', name: 'Zoo / Ku-Damm Rank', area: 'Charlottenburg', lat: 52.5065, lng: 13.3335 },
+      { id: 'rank-ber-hbf', name: 'Hauptbahnhof Taxi Rank', area: 'Moabit', lat: 52.5258, lng: 13.3688, hubType: 'station' },
+      { id: 'rank-ber-alex', name: 'Uber Arena / East Hub', area: 'Friedrichshain', lat: 52.5062, lng: 13.4436, hubType: 'stadium' },
+      { id: 'rank-ber-ku', name: 'Zoo / Airport Shuttle Rank', area: 'Charlottenburg', lat: 52.5065, lng: 13.3335, hubType: 'airport' },
     ],
   },
   {
@@ -113,9 +116,9 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'CDG Terminal 2E', area: 'Roissy · Out of City', lat: 49.0047, lng: 2.5784, distanceKm: 31 },
     ],
     ranks: [
-      { id: 'rank-par-gdn', name: 'Gare du Nord Eurostar Rank', area: '10e', lat: 48.8814, lng: 2.3559 },
-      { id: 'rank-par-gdl', name: 'Gare de Lyon Rank', area: '12e', lat: 48.8449, lng: 2.3738 },
-      { id: 'rank-par-ch', name: 'Champs-Élysées George V Rank', area: '8e', lat: 48.8712, lng: 2.3019 },
+      { id: 'rank-par-gdn', name: 'Gare du Nord Eurostar Rank', area: '10e', lat: 48.8814, lng: 2.3559, hubType: 'station' },
+      { id: 'rank-par-gdl', name: 'Accor Arena / Bercy Rank', area: '12e', lat: 48.8396, lng: 2.3785, hubType: 'stadium' },
+      { id: 'rank-par-ch', name: 'CDG / Étoile Airport Rank', area: '8e', lat: 48.8712, lng: 2.3019, hubType: 'airport' },
     ],
   },
   {
@@ -137,9 +140,9 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Radom Central Plaza', area: 'Radom · Out of City', lat: 51.4027, lng: 21.1471, distanceKm: 102 },
     ],
     ranks: [
-      { id: 'rank-waw-ctr', name: 'Warszawa Centralna Rank', area: 'Śródmieście', lat: 52.2294, lng: 21.0042 },
-      { id: 'rank-waw-onz', name: 'Rondo ONZ Business Rank', area: 'Centrum', lat: 52.2336, lng: 20.9992 },
-      { id: 'rank-waw-old', name: 'Castle Square Rank', area: 'Old Town', lat: 52.2476, lng: 21.0138 },
+      { id: 'rank-waw-ctr', name: 'Warszawa Centralna Rank', area: 'Śródmieście', lat: 52.2294, lng: 21.0042, hubType: 'station' },
+      { id: 'rank-waw-std', name: 'PGE Narodowy Stadium Rank', area: 'Praga', lat: 52.2395, lng: 21.0458, hubType: 'stadium' },
+      { id: 'rank-waw-old', name: 'Chopin Airport Express Hub', area: 'Włochy', lat: 52.2336, lng: 20.9992, hubType: 'airport' },
     ],
   },
   {
@@ -161,9 +164,9 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Al Ain Oasis Gate', area: 'Al Ain · Out of City', lat: 24.2194, lng: 55.7644, distanceKm: 145 },
     ],
     ranks: [
-      { id: 'rank-dxb-mall', name: 'Dubai Mall VIP Rank', area: 'Downtown', lat: 25.1965, lng: 55.2788 },
-      { id: 'rank-dxb-difc', name: 'DIFC Gate Rank', area: 'DIFC', lat: 25.2121, lng: 55.2809 },
-      { id: 'rank-dxb-bb', name: 'Business Bay Priority Rank', area: 'Business Bay', lat: 25.1904, lng: 55.2608 },
+      { id: 'rank-dxb-mall', name: 'Dubai Mall VIP Rank', area: 'Downtown', lat: 25.1965, lng: 55.2788, hubType: 'stadium' },
+      { id: 'rank-dxb-difc', name: 'DIFC Gate Rank', area: 'DIFC', lat: 25.2121, lng: 55.2809, hubType: 'station' },
+      { id: 'rank-dxb-bb', name: 'DXB Terminal Priority Queue', area: 'Airport Corridor', lat: 25.1904, lng: 55.2608, hubType: 'airport' },
     ],
   },
   {
@@ -185,9 +188,9 @@ export const WORLD_CITIES: CityPreset[] = [
       { name: 'Philadelphia 30th St', area: 'Philadelphia, PA · Out of City', lat: 39.9566, lng: -75.1817, distanceKm: 152 },
     ],
     ranks: [
-      { id: 'rank-nyc-gct', name: 'Grand Central East Rank', area: 'Midtown East', lat: 40.7525, lng: -73.9765 },
-      { id: 'rank-nyc-penn', name: 'Penn Station 8th Ave Rank', area: 'Chelsea', lat: 40.7512, lng: -73.9942 },
-      { id: 'rank-nyc-soho', name: 'SoHo Mercer St Rank', area: 'SoHo', lat: 40.7248, lng: -73.9985 },
+      { id: 'rank-nyc-gct', name: 'Grand Central East Rank', area: 'Midtown East', lat: 40.7525, lng: -73.9765, hubType: 'station' },
+      { id: 'rank-nyc-msg', name: 'Madison Square Garden Event Rank', area: 'Chelsea', lat: 40.7512, lng: -73.9942, hubType: 'stadium' },
+      { id: 'rank-nyc-jfk', name: 'JFK / LaGuardia Express Holding', area: 'SoHo Bridge', lat: 40.7248, lng: -73.9985, hubType: 'airport' },
     ],
   },
 ];
@@ -207,7 +210,7 @@ export function getFutureIsoDate(daysFromNow: number): string {
   return d.toISOString().split('T')[0];
 }
 
-export function haversineKm(a: LatLng, b: LatLng): number {
+export function exactDistanceKm(a: LatLng, b: LatLng): number {
   const R = 6371;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
   const dLng = ((b.lng - a.lng) * Math.PI) / 180;
@@ -224,7 +227,29 @@ export function haversineKm(a: LatLng, b: LatLng): number {
             sinLng
       )
     );
-  return Math.max(0.2, Number((R * c).toFixed(2)));
+  return R * c;
+}
+
+export function haversineKm(a: LatLng, b: LatLng): number {
+  return Math.max(0.2, Number(exactDistanceKm(a, b).toFixed(2)));
+}
+
+export function minDistanceToRouteMeters(point: LatLng, route: LatLng[]): number {
+  if (route.length === 0) return Infinity;
+  let bestKm = Infinity;
+  for (let i = 0; i < route.length; i++) {
+    const d = exactDistanceKm(point, route[i]);
+    if (d < bestKm) bestKm = d;
+  }
+  return bestKm * 1000;
+}
+
+export function interpolateLatLng(a: LatLng, b: LatLng, t: number): LatLng {
+  const clamped = Math.max(0, Math.min(1, t));
+  return {
+    lat: a.lat + (b.lat - a.lat) * clamped,
+    lng: a.lng + (b.lng - a.lng) * clamped,
+  };
 }
 
 export function calculateBearing(from: LatLng, to: LatLng): number {
@@ -237,56 +262,64 @@ export function calculateBearing(from: LatLng, to: LatLng): number {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
-function buildFallbackRoute(from: LatLng, to: LatLng): {
+function buildFallbackMultiRoute(waypoints: LatLng[]): {
   points: LatLng[];
   maneuvers: ManeuverStep[];
   distanceKm: number;
 } {
-  const mid1: LatLng = {
-    lat: from.lat + (to.lat - from.lat) * 0.45,
-    lng: from.lng + (to.lng - from.lng) * 0.15,
-  };
-  const mid2: LatLng = {
-    lat: from.lat + (to.lat - from.lat) * 0.55,
-    lng: from.lng + (to.lng - from.lng) * 0.85,
-  };
-
-  const anchors = [from, mid1, mid2, to];
   const points: LatLng[] = [];
-  for (let i = 0; i < anchors.length - 1; i++) {
-    const a = anchors[i];
-    const b = anchors[i + 1];
-    const steps = 6;
-    for (let s = 0; s < steps; s++) {
-      const t = s / steps;
-      points.push({
-        lat: a.lat + (b.lat - a.lat) * t,
-        lng: a.lng + (b.lng - a.lng) * t,
-      });
+  let totalKm = 0;
+
+  for (let w = 0; w < waypoints.length - 1; w++) {
+    const from = waypoints[w];
+    const to = waypoints[w + 1];
+    totalKm += exactDistanceKm(from, to) * 1.22;
+
+    const mid1: LatLng = {
+      lat: from.lat + (to.lat - from.lat) * 0.45,
+      lng: from.lng + (to.lng - from.lng) * 0.18,
+    };
+    const mid2: LatLng = {
+      lat: from.lat + (to.lat - from.lat) * 0.55,
+      lng: from.lng + (to.lng - from.lng) * 0.82,
+    };
+
+    const anchors = [from, mid1, mid2, to];
+    for (let i = 0; i < anchors.length - 1; i++) {
+      const a = anchors[i];
+      const b = anchors[i + 1];
+      const steps = 6;
+      for (let s = 0; s < steps; s++) {
+        const t = s / steps;
+        points.push({
+          lat: a.lat + (b.lat - a.lat) * t,
+          lng: a.lng + (b.lng - a.lng) * t,
+        });
+      }
     }
   }
-  points.push(to);
+  points.push(waypoints[waypoints.length - 1]);
 
-  const distKm = Math.max(0.6, Number((haversineKm(from, to) * 1.24).toFixed(1)));
+  const distKm = Math.max(0.6, Number(totalKm.toFixed(1)));
   const maneuvers: ManeuverStep[] = [
     {
-      instruction: 'Head along main road toward pickup corridor',
+      instruction: 'Head along main road toward route corridor',
       streetName: 'Main Avenue',
-      distanceMeters: Math.round(distKm * 450),
+      distanceMeters: Math.round(distKm * 420),
       direction: 'straight',
       pointIndex: 0,
     },
     {
       instruction: 'Turn right onto connecting boulevard',
       streetName: 'Central Boulevard',
-      distanceMeters: Math.round(distKm * 350),
+      distanceMeters: Math.round(distKm * 360),
       direction: 'right',
-      pointIndex: Math.floor(points.length * 0.35),
+      pointIndex: Math.floor(points.length * 0.36),
     },
     {
-      instruction: 'Turn left toward arrival pin',
+      instruction: 'Turn left toward stop / arrival pin',
       streetName: 'Station Approach',
-      distanceMeters: Math.round(distKm * 200),
+      distanceMeters: Math.round(distKm * 220),
       direction: 'left',
       pointIndex: Math.floor(points.length * 0.72),
     },
@@ -295,15 +328,19 @@ function buildFallbackRoute(from: LatLng, to: LatLng): {
   return { points, maneuvers, distanceKm: distKm };
 }
 
-export async function fetchRoadRoute(
-  from: LatLng,
-  to: LatLng
+export async function fetchMultiStopRoadRoute(
+  waypoints: LatLng[]
 ): Promise<{ points: LatLng[]; maneuvers: ManeuverStep[]; distanceKm: number; durationMin: number }> {
+  if (waypoints.length < 2) {
+    return { points: waypoints, maneuvers: [], distanceKm: 0.4, durationMin: 2 };
+  }
+
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3200);
+  const timeout = setTimeout(() => controller.abort(), 3400);
 
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson&steps=true`;
+    const coordsParam = waypoints.map((w) => `${w.lng},${w.lat}`).join(';');
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordsParam}?overview=full&geometries=geojson&steps=true`;
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
 
@@ -317,40 +354,75 @@ export async function fetchRoadRoute(
       lng: c[0],
     }));
 
-    const stepsRaw = route.legs?.[0]?.steps || [];
-    const maneuvers: ManeuverStep[] = stepsRaw.slice(0, 8).map(
+    const stepsRaw = (route.legs || []).flatMap(
+      (leg: {
+        steps?: {
+          name?: string;
+          distance?: number;
+          maneuver?: { modifier?: string; type?: string; location?: [number, number] };
+        }[];
+      }) => leg.steps || []
+    );
+
+    let searchStart = 0;
+    const maneuvers: ManeuverStep[] = stepsRaw.map(
       (
         step: {
           name?: string;
           distance?: number;
-          maneuver?: { modifier?: string };
+          maneuver?: { modifier?: string; type?: string; location?: [number, number] };
         },
         idx: number
       ) => {
         const mod = step.maneuver?.modifier || '';
+        const mType = step.maneuver?.type || '';
         const dir: 'left' | 'right' | 'straight' = mod.includes('left')
           ? 'left'
           : mod.includes('right')
           ? 'right'
           : 'straight';
-        const streetName = step.name && step.name.trim() ? step.name : 'local street';
-        const distM = Math.max(40, Math.round(step.distance || 150));
-        const instruction =
+        const streetName = step.name && step.name.trim() ? step.name : 'the road ahead';
+        const distM = Math.max(30, Math.round(step.distance || 120));
+
+        let instruction =
           dir === 'left'
             ? `Turn left onto ${streetName}`
             : dir === 'right'
             ? `Turn right onto ${streetName}`
             : `Continue on ${streetName}`;
 
+        if (mType === 'depart') {
+          instruction = `Head out onto ${streetName}`;
+        } else if (mType === 'roundabout' || mType === 'rotary') {
+          instruction = `At the roundabout, exit onto ${streetName}`;
+        } else if (mType === 'arrive') {
+          instruction = `Arrive at ${streetName === 'the road ahead' ? 'waypoint' : streetName}`;
+        }
+
+        let matchedIndex = Math.min(
+          points.length - 1,
+          Math.floor((idx / Math.max(1, stepsRaw.length)) * points.length)
+        );
+        const loc = step.maneuver?.location;
+        if (loc && loc.length === 2) {
+          const target: LatLng = { lat: loc[1], lng: loc[0] };
+          let bestDist = Infinity;
+          for (let pIdx = searchStart; pIdx < points.length; pIdx++) {
+            const d = exactDistanceKm(points[pIdx], target);
+            if (d < bestDist) {
+              bestDist = d;
+              matchedIndex = pIdx;
+            }
+          }
+          searchStart = matchedIndex;
+        }
+
         return {
           instruction,
           streetName,
           distanceMeters: distM,
           direction: dir,
-          pointIndex: Math.min(
-            points.length - 1,
-            Math.floor((idx / Math.max(1, stepsRaw.length)) * points.length)
-          ),
+          pointIndex: matchedIndex,
         };
       }
     );
@@ -360,12 +432,19 @@ export async function fetchRoadRoute(
     return { points, maneuvers, distanceKm, durationMin };
   } catch {
     clearTimeout(timeout);
-    const fb = buildFallbackRoute(from, to);
+    const fb = buildFallbackMultiRoute(waypoints);
     return {
       ...fb,
       durationMin: Math.max(3, Math.round(fb.distanceKm * 3.1)),
     };
   }
+}
+
+export async function fetchRoadRoute(
+  from: LatLng,
+  to: LatLng
+): Promise<{ points: LatLng[]; maneuvers: ManeuverStep[]; distanceKm: number; durationMin: number }> {
+  return fetchMultiStopRoadRoute([from, to]);
 }
 
 export function generateSurgeZonesNear(center: LatLng, cityId: string): SurgeZone[] {
@@ -386,39 +465,157 @@ export function generateSurgeZonesNear(center: LatLng, cityId: string): SurgeZon
   }));
 }
 
+export function generateDistrictDemandNear(center: LatLng, cityId: string): DistrictDemandZone[] {
+  const city = getCityById(cityId);
+  const nowHour = new Date().getHours();
+  const templates = [
+    {
+      offsetLat: 0.004,
+      offsetLng: -0.006,
+      radiusMeters: 1100,
+      peakHours: [8, 9, 17, 18, 19, 20, 22, 23],
+      peakWindow: '17:00–21:00',
+      busySoonLabel: 'Evening Commute & Theatre Rush',
+      forecastOffsetLabel: `Peak around ${((nowHour + 1) % 24).toString().padStart(2, '0')}:00`,
+      forecastMultiplier: 1.9,
+    },
+    {
+      offsetLat: 0.015,
+      offsetLng: 0.012,
+      radiusMeters: 1200,
+      peakHours: [6, 7, 8, 9, 16, 17, 18, 19],
+      peakWindow: '07:00–10:00 · 16:00–19:00',
+      busySoonLabel: 'Express Rail & Airport Arrivals',
+      forecastOffsetLabel: '+45m Flight/Rail Wave',
+      forecastMultiplier: 1.8,
+    },
+    {
+      offsetLat: -0.011,
+      offsetLng: 0.018,
+      radiusMeters: 1050,
+      peakHours: [19, 20, 21, 22, 23, 0, 1],
+      peakWindow: '20:00–01:00',
+      busySoonLabel: 'Arena Concert & Nightlife Let-Out',
+      forecastOffsetLabel: '+1h 15m Event Exit Surge',
+      forecastMultiplier: 2.2,
+    },
+    {
+      offsetLat: -0.008,
+      offsetLng: -0.017,
+      radiusMeters: 950,
+      peakHours: [8, 9, 12, 13, 17, 18],
+      peakWindow: '08:00–10:00 · 17:00–19:00',
+      busySoonLabel: 'Financial District Office Departures',
+      forecastOffsetLabel: '+1h Business Pickup Spike',
+      forecastMultiplier: 1.6,
+    },
+    {
+      offsetLat: 0.018,
+      offsetLng: -0.014,
+      radiusMeters: 1000,
+      peakHours: [11, 12, 13, 14, 15, 18, 19, 20],
+      peakWindow: '12:00–16:00 · 18:00–20:00',
+      busySoonLabel: 'Retail Boulevard & Dining Wave',
+      forecastOffsetLabel: '+2h Dinner Reservations',
+      forecastMultiplier: 1.5,
+    },
+    {
+      offsetLat: -0.019,
+      offsetLng: 0.002,
+      radiusMeters: 1150,
+      peakHours: [5, 6, 7, 14, 15, 21, 22],
+      peakWindow: '05:30–08:00 · 21:00–23:00',
+      busySoonLabel: 'Terminal Hub & Late Shift Transfers',
+      forecastOffsetLabel: '+1h High-Fare Transfers',
+      forecastMultiplier: 1.7,
+    },
+  ];
+
+  const distToCity = haversineKm(center, city.center);
+  return templates.map((tpl, idx) => {
+    const landmark = city.landmarks[idx % city.landmarks.length];
+    const zoneCenter =
+      distToCity < 25 && landmark
+        ? { lat: landmark.lat, lng: landmark.lng }
+        : { lat: center.lat + tpl.offsetLat, lng: center.lng + tpl.offsetLng };
+
+    const hourlyScores = Array.from({ length: 24 }, (_, hour) => {
+      const minDist = Math.min(
+        ...tpl.peakHours.map((ph) => {
+          const d = Math.abs(ph - hour);
+          return Math.min(d, 24 - d);
+        })
+      );
+      const base = minDist === 0 ? 0.92 : minDist === 1 ? 0.68 : minDist === 2 ? 0.44 : 0.22;
+      const jitter = ((idx * 7 + hour * 3) % 10) * 0.012;
+      return Math.min(1, Number((base + jitter).toFixed(2)));
+    });
+
+    return {
+      id: `demand-${city.id}-${idx}`,
+      district: landmark?.area || `${city.name} District ${idx + 1}`,
+      center: zoneCenter,
+      radiusMeters: tpl.radiusMeters,
+      hourlyScores,
+      peakWindow: tpl.peakWindow,
+      busySoonLabel: tpl.busySoonLabel,
+      forecastOffsetLabel: tpl.forecastOffsetLabel,
+      forecastMultiplier: tpl.forecastMultiplier,
+    };
+  });
+}
+
 export function generateRanksNear(center: LatLng, cityId: string): TaxiRank[] {
   const city = getCityById(cityId);
   const distToCity = haversineKm(center, city.center);
   if (distToCity < 25 && city.ranks.length > 0) {
-    return city.ranks.map((r, idx) => ({
-      id: r.id,
-      name: r.name,
-      area: r.area,
-      center: { lat: r.lat, lng: r.lng },
-      queueCount: 2 + idx * 2,
-      estWaitMin: 4 + idx * 3,
-      avgFareBoost: idx === 0 ? '+35% Airport/Express' : '+22% Station Priority',
-    }));
+    return city.ranks.map((r, idx) => {
+      const total = r.hubType === 'airport' ? 38 : r.hubType === 'stadium' ? 28 : 19;
+      const queue = r.hubType === 'airport' ? 14 : r.hubType === 'stadium' ? 11 : 6;
+      return {
+        id: r.id,
+        name: r.name,
+        area: r.area,
+        center: { lat: r.lat, lng: r.lng },
+        queueCount: queue,
+        totalDrivers: total,
+        estWaitMin: r.hubType === 'airport' ? 11 : 5 + idx * 2,
+        avgFareBoost:
+          r.hubType === 'airport'
+            ? '+35% Airport Priority'
+            : r.hubType === 'stadium'
+            ? '+30% Stadium Event Boost'
+            : '+22% Station Priority',
+        hubType: r.hubType || 'station',
+        geofenceRadiusMeters: r.hubType === 'airport' ? 750 : 520,
+      };
+    });
   }
 
   return [
     {
-      id: `rank-local-1`,
-      name: 'Central Station Rank',
-      area: 'City Centre',
-      center: { lat: center.lat + 0.006, lng: center.lng + 0.007 },
-      queueCount: 3,
-      estWaitMin: 5,
-      avgFareBoost: '+24% Station Priority',
+      id: 'rank-local-airport',
+      name: 'Airport Express Holding Hub',
+      area: 'Terminal Geofence',
+      center: { lat: center.lat + 0.008, lng: center.lng + 0.009 },
+      queueCount: 14,
+      totalDrivers: 38,
+      estWaitMin: 11,
+      avgFareBoost: '+35% Airport Priority',
+      hubType: 'airport',
+      geofenceRadiusMeters: 750,
     },
     {
-      id: `rank-local-2`,
-      name: 'North Terminal Taxi Rank',
-      area: 'Transit Hub',
+      id: 'rank-local-stadium',
+      name: 'Arena & Stadium Event Rank',
+      area: 'South Gate',
       center: { lat: center.lat - 0.007, lng: center.lng - 0.008 },
-      queueCount: 5,
+      queueCount: 9,
+      totalDrivers: 24,
       estWaitMin: 7,
-      avgFareBoost: '+32% Express Hub',
+      avgFareBoost: '+28% Event Hub Boost',
+      hubType: 'stadium',
+      geofenceRadiusMeters: 550,
     },
   ];
 }
@@ -471,16 +668,29 @@ export async function generateLiveRideRequest(params: {
   destinationTarget: LatLng | null;
   surgeZones: SurgeZone[];
   preferredRankArea?: string | null;
+  originOverride?: LatLng | null;
+  maxVehicleRangeKm?: number;
 }): Promise<RideRequest> {
   const city = getCityById(params.cityId);
-  const categories =
+  const routeStart = params.originOverride || params.driverLocation;
+
+  let categories =
     params.enabledCategories.length > 0 ? params.enabledCategories : (['Bolt'] as RideCategory[]);
+
+  // EV Battery / Fuel Range Guard: filter out Bolt City out-of-city trips if range is insufficient
+  if (params.maxVehicleRangeKm !== undefined && params.maxVehicleRangeKm < 95) {
+    const cityFiltered = categories.filter((c) => c !== 'Bolt City');
+    if (cityFiltered.length > 0) {
+      categories = cityFiltered;
+    }
+  }
+
   const category = categories[Math.floor(Math.random() * categories.length)];
   const isOutOfCity = category === 'Bolt City';
   const isFlex = category === 'Bolt Flex';
 
-  const distToCity = haversineKm(params.driverLocation, city.center);
-  const useCityLandmarks = distToCity < 25 && city.landmarks.length >= 2;
+  const distToCity = haversineKm(routeStart, city.center);
+  const useCityLandmarks = distToCity < 25 && city.landmarks.length >= 3;
 
   let pickupCoords: LatLng;
   let pickupAddress: string;
@@ -489,13 +699,14 @@ export async function generateLiveRideRequest(params: {
   let dropoffAddress: string;
   let dropoffArea: string;
   let outOfCityKmOverride: number | null = null;
+  const stops: TripStop[] = [];
 
   if (useCityLandmarks) {
     const sorted = [...city.landmarks].sort(
-      (a, b) => haversineKm(params.driverLocation, a) - haversineKm(params.driverLocation, b)
+      (a, b) => haversineKm(routeStart, a) - haversineKm(routeStart, b)
     );
     const withinPickup = sorted.filter(
-      (l) => haversineKm(params.driverLocation, l) <= Math.max(2, params.maxPickupKm)
+      (l) => haversineKm(routeStart, l) <= Math.max(2, params.maxPickupKm)
     );
     const pickupPool = withinPickup.length > 0 ? withinPickup : sorted.slice(0, 3);
     const p = pickupPool[Math.floor(Math.random() * pickupPool.length)];
@@ -504,10 +715,12 @@ export async function generateLiveRideRequest(params: {
     pickupArea = params.preferredRankArea || p.area;
 
     if (isOutOfCity && city.intercityDestinations.length > 0) {
-      const inter =
-        city.intercityDestinations[
-          Math.floor(Math.random() * city.intercityDestinations.length)
-        ];
+      const affordableInter =
+        params.maxVehicleRangeKm !== undefined
+          ? city.intercityDestinations.filter((d) => d.distanceKm <= params.maxVehicleRangeKm! - 15)
+          : city.intercityDestinations;
+      const interPool = affordableInter.length > 0 ? affordableInter : city.intercityDestinations;
+      const inter = interPool[Math.floor(Math.random() * interPool.length)];
       dropoffCoords = { lat: inter.lat, lng: inter.lng };
       dropoffAddress = inter.name;
       dropoffArea = inter.area;
@@ -518,10 +731,25 @@ export async function generateLiveRideRequest(params: {
       dropoffCoords = params.destinationTarget || { lat: d.lat, lng: d.lng };
       dropoffAddress = params.destinationTarget ? 'Destination Corridor' : d.name;
       dropoffArea = params.destinationTarget ? 'Target Area' : d.area;
+
+      // Multistop Trips (~35% chance on standard city rides)
+      const remainingStops = dropPool.filter((l) => l.name !== d.name);
+      if (remainingStops.length >= 1 && Math.random() < 0.36) {
+        const stopCount = remainingStops.length >= 2 && Math.random() < 0.35 ? 2 : 1;
+        for (let s = 0; s < stopCount; s++) {
+          const lm = remainingStops[s];
+          stops.push({
+            id: `stop-${s + 1}-${Date.now()}`,
+            address: lm.name,
+            area: lm.area,
+            coords: { lat: lm.lat, lng: lm.lng },
+          });
+        }
+      }
     }
   } else {
     const maxP = Math.min(params.maxPickupKm, 3.2);
-    pickupCoords = randomOffsetCoord(params.driverLocation, 0.5, Math.max(1.2, maxP));
+    pickupCoords = randomOffsetCoord(routeStart, 0.4, Math.max(1.1, maxP));
     const st1 = LOCAL_STREETS[Math.floor(Math.random() * LOCAL_STREETS.length)];
     const num1 = Math.floor(10 + Math.random() * 140);
     pickupAddress = params.preferredRankArea
@@ -530,7 +758,7 @@ export async function generateLiveRideRequest(params: {
     pickupArea = params.preferredRankArea || 'Nearby Pickup';
 
     if (isOutOfCity) {
-      dropoffCoords = randomOffsetCoord(pickupCoords, 42, 95);
+      dropoffCoords = randomOffsetCoord(pickupCoords, 42, 85);
       dropoffAddress = 'Intercity Regional Terminal';
       dropoffArea = 'Out of City';
       outOfCityKmOverride = Number(haversineKm(pickupCoords, dropoffCoords).toFixed(1));
@@ -540,12 +768,24 @@ export async function generateLiveRideRequest(params: {
       const num2 = Math.floor(12 + Math.random() * 180);
       dropoffAddress = params.destinationTarget ? 'Your Destination Area' : `${num2} ${st2}`;
       dropoffArea = 'Destination';
+
+      if (Math.random() < 0.34) {
+        const stopCoord = interpolateLatLng(pickupCoords, dropoffCoords, 0.45);
+        const stStop = LOCAL_STREETS[(Math.floor(Math.random() * LOCAL_STREETS.length) + 2) % LOCAL_STREETS.length];
+        stops.push({
+          id: `stop-1-${Date.now()}`,
+          address: `${Math.floor(15 + Math.random() * 90)} ${stStop}`,
+          area: 'Mid-Trip Stop',
+          coords: stopCoord,
+        });
+      }
     }
   }
 
+  const dropoffWaypoints = [pickupCoords, ...stops.map((s) => s.coords), dropoffCoords];
   const [toPickup, toDropoff] = await Promise.all([
-    fetchRoadRoute(params.driverLocation, pickupCoords),
-    fetchRoadRoute(pickupCoords, dropoffCoords),
+    fetchRoadRoute(routeStart, pickupCoords),
+    fetchMultiStopRoadRoute(dropoffWaypoints),
   ]);
 
   let surgeMultiplier = 1.0;
@@ -582,7 +822,8 @@ export async function generateLiveRideRequest(params: {
       : 1.0;
 
   const baseFare = isOutOfCity ? 12.0 : 3.2;
-  const distanceFare = Number((tripDistanceKm * 1.85 * categoryRate).toFixed(2));
+  const stopBonus = stops.length * 2.5;
+  const distanceFare = Number((tripDistanceKm * 1.85 * categoryRate + stopBonus).toFixed(2));
   const timeFare = Number((tripEtaMin * 0.28 * categoryRate).toFixed(2));
   const rawTotal = baseFare + distanceFare + timeFare;
   const minFloor = Math.max(params.minFareFilter, isOutOfCity ? 78 : 6.5);
@@ -598,6 +839,12 @@ export async function generateLiveRideRequest(params: {
   const minRating = Math.max(4.5, params.minRiderRating);
   const riderRating = Number((minRating + Math.random() * (5.0 - minRating)).toFixed(2));
 
+  const requiresPin =
+    isOutOfCity || Boolean(params.preferredRankArea) || estimatedFare >= 20 || Math.random() < 0.45;
+  const pickupPin = requiresPin
+    ? Math.floor(1000 + Math.random() * 9000).toString()
+    : undefined;
+
   return {
     id: `req-${Date.now()}-${Math.floor(Math.random() * 999)}`,
     riderName: RIDER_NAMES[Math.floor(Math.random() * RIDER_NAMES.length)],
@@ -612,6 +859,10 @@ export async function generateLiveRideRequest(params: {
     dropoffCoords,
     dropoffAddress,
     dropoffArea,
+    stops: stops.length > 0 ? stops : undefined,
+    pickupPin,
+    waitFeePerMin: 0.45,
+    waitFeeTotal: 0,
     pickupDistanceKm: toPickup.distanceKm,
     pickupEtaMin: toPickup.durationMin,
     tripDistanceKm,
@@ -628,14 +879,101 @@ export async function generateLiveRideRequest(params: {
     maneuversToDropoff: toDropoff.maneuvers,
     allowBid: isFlex || params.allowBid,
     isOutOfCity,
-    // ~50% of riders reply cleanly, ~50% leave the driver waiting so the 2-min no-response workflow triggers naturally
-    willRiderReply: Math.random() > 0.5,
+    willRiderReply: Math.random() > 0.42,
     note: isOutOfCity
       ? 'Intercity long-distance booking with luggage'
+      : stops.length > 0
+      ? `Includes ${stops.length} quick stop${stops.length > 1 ? 's' : ''} along the way`
       : Math.random() > 0.55
       ? 'Waiting near main glass entrance'
       : undefined,
   };
+}
+
+export function generateScheduledRidesNear(
+  driverLocation: LatLng,
+  cityId: string
+): ScheduledRide[] {
+  const city = getCityById(cityId);
+  const distToCity = haversineKm(driverLocation, city.center);
+  const useCity = distToCity < 25 && city.landmarks.length >= 3;
+
+  const slots = [
+    { offsetMin: 12, tag: 'Airport Transfer' as const, cat: 'Comfort' as RideCategory },
+    { offsetMin: 28, tag: 'Station Express' as const, cat: 'Bolt' as RideCategory },
+    { offsetMin: 55, tag: 'VIP Business' as const, cat: 'Bolt Green' as RideCategory },
+    { offsetMin: 95, tag: 'Morning Commute' as const, cat: 'XL' as RideCategory },
+    { offsetMin: 145, tag: 'Airport Transfer' as const, cat: 'Bolt City' as RideCategory },
+  ];
+
+  return slots.map((slot, i) => {
+    const pickupDate = new Date(Date.now() + slot.offsetMin * 60 * 1000);
+    const label = `${pickupDate.getHours().toString().padStart(2, '0')}:${pickupDate
+      .getMinutes()
+      .toString()
+      .padStart(2, '0')}`;
+
+    const lmA = useCity ? city.landmarks[i % city.landmarks.length] : null;
+    const inter =
+      slot.cat === 'Bolt City' && city.intercityDestinations.length > 0
+        ? city.intercityDestinations[0]
+        : null;
+    const lmB = inter
+      ? null
+      : useCity
+      ? city.landmarks[(i + 2) % city.landmarks.length]
+      : null;
+
+    const pickupCoords = lmA
+      ? { lat: lmA.lat, lng: lmA.lng }
+      : randomOffsetCoord(driverLocation, 0.8, 2.8);
+    const dropoffCoords = inter
+      ? { lat: inter.lat, lng: inter.lng }
+      : lmB
+      ? { lat: lmB.lat, lng: lmB.lng }
+      : randomOffsetCoord(pickupCoords, 5.5, 16);
+
+    const tripDistanceKm = inter
+      ? inter.distanceKm
+      : Number(Math.max(4.8, haversineKm(pickupCoords, dropoffCoords) * 1.25).toFixed(1));
+    const tripEtaMin = inter
+      ? Math.max(42, Math.round(inter.distanceKm * 1.1))
+      : Math.max(12, Math.round(tripDistanceKm * 2.6));
+    const estimatedFare = inter
+      ? Number((16 + tripDistanceKm * 1.9).toFixed(2))
+      : Number((6.5 + tripDistanceKm * 2.15 + tripEtaMin * 0.25).toFixed(2));
+
+    return {
+      id: `sched-${city.id}-${i}`,
+      riderName: RIDER_NAMES[(i + 2) % RIDER_NAMES.length],
+      riderRating: Number((4.86 + (i % 3) * 0.04).toFixed(2)),
+      category: slot.cat,
+      pickupAddress: lmA ? lmA.name : `${18 + i * 11} ${LOCAL_STREETS[i % LOCAL_STREETS.length]}`,
+      pickupArea: lmA ? lmA.area : 'City Pickup',
+      dropoffAddress: inter
+        ? inter.name
+        : lmB
+        ? lmB.name
+        : `${62 + i * 15} ${LOCAL_STREETS[(i + 3) % LOCAL_STREETS.length]}`,
+      dropoffArea: inter ? inter.area : lmB ? lmB.area : 'Terminal Dropoff',
+      pickupCoords,
+      dropoffCoords,
+      pickupTimeIso: pickupDate.toISOString(),
+      pickupTimeLabel: label,
+      tag: slot.tag,
+      tripDistanceKm,
+      tripEtaMin,
+      estimatedFare,
+      currency: city.currency,
+      paymentMethod: i % 2 === 0 ? 'Card' : 'Apple Pay',
+      claimed: false,
+      pickupPin: `${2400 + i * 137}`,
+      note:
+        slot.tag === 'Airport Transfer'
+          ? '2 large suitcases · Terminal departures'
+          : 'Pre-booked executive pickup',
+    };
+  });
 }
 
 export function generateBidJobsNear(
@@ -651,7 +989,8 @@ export function generateBidJobsNear(
   const jobs: BidJobOffer[] = [];
 
   for (let i = 0; i < 4; i++) {
-    const isCityJob = i === 1 && categories.includes('Bolt City') && city.intercityDestinations.length > 0;
+    const isCityJob =
+      i === 1 && categories.includes('Bolt City') && city.intercityDestinations.length > 0;
     const pickupCoords =
       city.landmarks[i] && haversineKm(driverLocation, city.center) < 25
         ? { lat: city.landmarks[i].lat, lng: city.landmarks[i].lng }
@@ -745,6 +1084,11 @@ export const INITIAL_VEHICLES: Vehicle[] = [
     categories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City', 'Pets', 'Delivery'],
     imageUrl: '/src/assets/images/vehicle_sedan_1794515087800.jpg',
     isActive: true,
+    rangeKm: 365,
+    maxRangeKm: 420,
+    odometerKm: 28410,
+    nextServiceKm: 30000,
+    tyreCheckKm: 29500,
   },
   {
     id: 'veh-corolla',
@@ -756,6 +1100,11 @@ export const INITIAL_VEHICLES: Vehicle[] = [
     categories: ['Bolt', 'Bolt Green', 'Bolt Flex', 'Bolt City', 'XL', 'Delivery'],
     imageUrl: '/src/assets/images/vehicle_sedan_1794515087800.jpg',
     isActive: false,
+    rangeKm: 540,
+    maxRangeKm: 680,
+    odometerKm: 44820,
+    nextServiceKm: 45500,
+    tyreCheckKm: 46000,
   },
 ];
 

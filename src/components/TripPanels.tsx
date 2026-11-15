@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
+  CalendarClock,
   Check,
+  CheckCircle2,
   Clock,
   Coffee,
   Compass,
   Gavel,
+  KeyRound,
   MapPin,
   MessageSquare,
   Phone,
@@ -15,24 +18,31 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { DriverStatus, RideRequest, TaxiRank } from '../types/driver';
+import { DriverStatus, RideRequest, ScheduledRide, TaxiRank } from '../types/driver';
 import { SlideToConfirm } from './SlideToConfirm';
 
 interface TripPanelsProps {
   status: DriverStatus;
   activeRequest: RideRequest | null;
+  queuedOffer: RideRequest | null;
+  queuedAccepted: boolean;
   currency: string;
   todayEarnings: number;
+  dailyGoal: number;
   todayTripsCount: number;
+  shiftElapsedSec: number;
+  shiftDistanceKm: number;
   driverScore: number;
   remainingEtaMin: number;
   remainingDistKm: number;
   destinationLabel: string | null;
   unreadChatCount: number;
   openBidJobsCount: number;
+  claimedScheduledRide: ScheduledRide | null;
   lastRefreshLabel: string;
   backgroundRefreshEnabled: boolean;
   nextRequestWaitLeft: number;
+  isRandomWait?: boolean;
   autoAccept: boolean;
   activeRank: TaxiRank | null;
   rankQueuePos: number | null;
@@ -46,12 +56,16 @@ interface TripPanelsProps {
   onToggleAutoAccept: () => void;
   onLeaveRank: () => void;
   onOpenBidJobs: () => void;
+  onOpenSchedule: () => void;
   onOpenPreferences: () => void;
   onOpenDestination: () => void;
   onClearDestination: () => void;
   onArrivePickup: () => void;
-  onStartTrip: () => void;
+  onRequestPinInChat: () => void;
+  onStartTrip: (waitFeeAccrued: number, pinVerified: boolean) => void;
   onCompleteTrip: () => void;
+  onAcceptQueuedOffer: () => void;
+  onDeclineQueuedOffer: () => void;
   onOpenChat: () => void;
   onCallRider: () => void;
   onOpenCancelModal: () => void;
@@ -63,18 +77,25 @@ interface TripPanelsProps {
 export const TripPanels: React.FC<TripPanelsProps> = ({
   status,
   activeRequest,
+  queuedOffer,
+  queuedAccepted,
   currency,
   todayEarnings,
+  dailyGoal,
   todayTripsCount,
+  shiftElapsedSec,
+  shiftDistanceKm,
   driverScore,
   remainingEtaMin,
   remainingDistKm,
   destinationLabel,
   unreadChatCount,
   openBidJobsCount,
+  claimedScheduledRide,
   lastRefreshLabel,
   backgroundRefreshEnabled,
   nextRequestWaitLeft,
+  isRandomWait,
   autoAccept,
   activeRank,
   rankQueuePos,
@@ -88,12 +109,16 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
   onToggleAutoAccept,
   onLeaveRank,
   onOpenBidJobs,
+  onOpenSchedule,
   onOpenPreferences,
   onOpenDestination,
   onClearDestination,
   onArrivePickup,
+  onRequestPinInChat,
   onStartTrip,
   onCompleteTrip,
+  onAcceptQueuedOffer,
+  onDeclineQueuedOffer,
   onOpenChat,
   onCallRider,
   onOpenCancelModal,
@@ -105,15 +130,26 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
   const [breakSeconds, setBreakSeconds] = useState(0);
   const [selectedStars, setSelectedStars] = useState(5);
   const [selectedTags, setSelectedTags] = useState<string[]>(['Polite']);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const [completedStopsCount, setCompletedStopsCount] = useState(0);
 
   useEffect(() => {
     if (status !== 'ARRIVED_PICKUP') {
       setWaitSeconds(0);
+      setPinInput('');
+      setPinError(false);
       return;
     }
     const timer = setInterval(() => setWaitSeconds((s) => s + 1), 1000);
     return () => clearInterval(timer);
   }, [status]);
+
+  useEffect(() => {
+    if (status !== 'IN_PROGRESS') {
+      setCompletedStopsCount(0);
+    }
+  }, [status, activeRequest?.id]);
 
   useEffect(() => {
     if (status !== 'ON_BREAK') {
@@ -139,19 +175,58 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
     return `${mins}:${rem}`;
   };
 
+  // Daily Goal Ring math
+  const goalPct = Math.min(100, Math.round((todayEarnings / Math.max(1, dailyGoal)) * 100));
+  const ringR = 16;
+  const ringCirc = 2 * Math.PI * ringR;
+  const ringOffset = ringCirc * (1 - goalPct / 100);
+  const shiftHours = Math.max(0.1, shiftElapsedSec / 3600);
+  const perHourRate = shiftElapsedSec >= 60 ? todayEarnings / shiftHours : 0;
+  const perKmRate = shiftDistanceKm > 0 ? todayEarnings / shiftDistanceKm : 0;
+
   if (status === 'OFFLINE') {
     return (
-      <div className="w-full bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 px-3.5 pt-2 pb-3 sm:p-5 space-y-2.5 sm:space-y-3.5 max-h-[46dvh] lg:max-h-none overflow-y-auto">
+      <div className="w-full bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 px-3.5 pt-2 pb-3 sm:p-5 space-y-2.5 sm:space-y-3.5 max-h-[48dvh] lg:max-h-none overflow-y-auto">
         <div className="w-9 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto lg:hidden" />
         <div className="flex items-center justify-between gap-2.5">
-          <div className="min-w-0">
-            <h2 className="text-base sm:text-lg font-extrabold text-slate-950 dark:text-white tracking-tight">
-              You&apos;re offline
-            </h2>
-            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums truncate">
-              Today: {currency}
-              {todayEarnings.toFixed(2)} · {todayTripsCount} trips · Score {driverScore}%
-            </p>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="relative w-10 h-10 shrink-0 flex items-center justify-center">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 40 40">
+                <circle
+                  cx="20"
+                  cy="20"
+                  r={ringR}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3.5"
+                  className="text-slate-200 dark:text-slate-800"
+                />
+                <circle
+                  cx="20"
+                  cy="20"
+                  r={ringR}
+                  fill="none"
+                  stroke="#34D186"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  strokeDasharray={ringCirc}
+                  strokeDashoffset={ringOffset}
+                />
+              </svg>
+              <span className="absolute text-[9px] font-extrabold font-mono-num text-slate-900 dark:text-white">
+                {goalPct}%
+              </span>
+            </div>
+
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-extrabold text-slate-950 dark:text-white tracking-tight leading-tight">
+                You&apos;re offline
+              </h2>
+              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums truncate">
+                Goal: {currency}
+                {todayEarnings.toFixed(0)}/{dailyGoal} · {todayTripsCount} trips · Score {driverScore}%
+              </p>
+            </div>
           </div>
 
           <button
@@ -163,6 +238,22 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
             <SlidersHorizontal className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
+
+        {claimedScheduledRide && (
+          <button
+            type="button"
+            onClick={onOpenSchedule}
+            className="w-full px-3 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800 flex items-center justify-between gap-2 text-left"
+          >
+            <span className="flex items-center gap-2 text-xs font-bold text-sky-900 dark:text-sky-200 truncate">
+              <CalendarClock className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+              Next reserved: {claimedScheduledRide.pickupTimeLabel} · {claimedScheduledRide.pickupArea}
+            </span>
+            <span className="text-[11px] font-extrabold text-sky-700 dark:text-sky-300 shrink-0">
+              View
+            </span>
+          </button>
+        )}
 
         {/* Destination Mode Shortcut */}
         {destinationLabel ? (
@@ -263,25 +354,57 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
 
   if (status === 'ONLINE_IDLE') {
     return (
-      <div className="w-full bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 px-3.5 pt-2 pb-3 sm:p-5 space-y-2.5 sm:space-y-3 max-h-[48dvh] lg:max-h-none overflow-y-auto">
+      <div className="w-full bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 px-3.5 pt-2 pb-3 sm:p-5 space-y-2.5 sm:space-y-3 max-h-[50dvh] lg:max-h-none overflow-y-auto">
         <div className="w-9 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto lg:hidden" />
         <div className="flex items-center justify-between gap-2.5">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm sm:text-base font-extrabold text-slate-950 dark:text-white tracking-tight">
-                Looking for rides
-              </span>
-              <span className="text-[11px] sm:text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                Online
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="relative w-10 h-10 shrink-0 flex items-center justify-center">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 40 40">
+                <circle
+                  cx="20"
+                  cy="20"
+                  r={ringR}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3.5"
+                  className="text-slate-200 dark:text-slate-800"
+                />
+                <circle
+                  cx="20"
+                  cy="20"
+                  r={ringR}
+                  fill="none"
+                  stroke="#34D186"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  strokeDasharray={ringCirc}
+                  strokeDashoffset={ringOffset}
+                />
+              </svg>
+              <span className="absolute text-[9px] font-extrabold font-mono-num text-slate-900 dark:text-white">
+                {goalPct}%
               </span>
             </div>
-            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums truncate">
-              Next request in{' '}
-              <span className="font-mono-num font-extrabold text-slate-800 dark:text-slate-200">
-                {formatTimer(nextRequestWaitLeft)}
-              </span>{' '}
-              · {backgroundRefreshEnabled ? `Synced ${lastRefreshLabel}` : 'Scanning surges'}
-            </p>
+
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm sm:text-base font-extrabold text-slate-950 dark:text-white tracking-tight">
+                  Looking for rides
+                </span>
+                <span className="text-[11px] sm:text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Online
+                </span>
+              </div>
+              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums truncate">
+                Next req in{' '}
+                <span className="font-mono-num font-extrabold text-slate-800 dark:text-slate-200">
+                  {formatTimer(nextRequestWaitLeft)}
+                </span>
+                {isRandomWait ? ' (Random)' : ''} · {currency}
+                {perHourRate.toFixed(0)}/hr · {currency}
+                {perKmRate.toFixed(2)}/km
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -310,15 +433,15 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
           </div>
         </div>
 
-        {/* Active Taxi Rank Queue Card */}
+        {/* Active Geofenced Airport / Stadium / Station Rank Queue Card */}
         {activeRank && (
           <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800">
             <div className="min-w-0">
               <div className="text-xs font-extrabold text-sky-900 dark:text-sky-200 truncate">
-                Rank Queue #{rankQueuePos ?? 1} · {activeRank.name}
+                Spot #{rankQueuePos ?? activeRank.queueCount} of {activeRank.totalDrivers} · {activeRank.name}
               </div>
-              <div className="text-[11px] text-sky-700 dark:text-sky-300">
-                {activeRank.avgFareBoost} · Priority dispatch active
+              <div className="text-[11px] text-sky-700 dark:text-sky-300 tabular-nums">
+                Est. call ~{Math.max(1, Math.round((rankQueuePos ?? 1) * 0.8))} min · {activeRank.avgFareBoost}
               </div>
             </div>
             <button
@@ -332,6 +455,14 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
         )}
 
         {/* Searching bar */}
+        <div className="flex items-center justify-between text-[10px] text-slate-400">
+          <span>{backgroundRefreshEnabled ? `Synced ${lastRefreshLabel}` : 'Scanning surges'}</span>
+          <span className="font-mono-num">
+            {currency}
+            {todayEarnings.toFixed(0)} / {currency}
+            {dailyGoal} goal
+          </span>
+        </div>
         <div className="h-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
           <div className="h-full w-1/3 bg-[#34D186] rounded-full animate-[pulse_1.6s_ease-in-out_infinite]" />
         </div>
@@ -346,7 +477,11 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
                 : 'bg-slate-100 dark:bg-slate-800 border-transparent text-slate-700 dark:text-slate-300'
             }`}
           >
-            <Zap className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${autoAccept ? 'text-[#25B670] fill-current' : 'text-slate-400'}`} />
+            <Zap
+              className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${
+                autoAccept ? 'text-[#25B670] fill-current' : 'text-slate-400'
+              }`}
+            />
             <span>Auto-Accept: {autoAccept ? 'ON' : 'OFF'}</span>
           </button>
 
@@ -391,31 +526,102 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
     const isArrived = status === 'ARRIVED_PICKUP';
     const isInProgress = status === 'IN_PROGRESS';
 
-    const freeWaitRemaining = Math.max(0, 180 - waitSeconds);
-    const isPaidWait = waitSeconds > 180;
+    // Automatic Paid Waiting-Time Meter: 2 minutes (120s) free, then per-minute wait fee added to fare
+    const FREE_WAIT_SEC = 120;
+    const freeWaitRemaining = Math.max(0, FREE_WAIT_SEC - waitSeconds);
+    const paidWaitSeconds = Math.max(0, waitSeconds - FREE_WAIT_SEC);
+    const isPaidWait = paidWaitSeconds > 0;
+    const waitRate = activeRequest.waitFeePerMin ?? 0.45;
+    const accruedWaitFee = isPaidWait
+      ? Number((((paidWaitSeconds / 60) * waitRate)).toFixed(2))
+      : 0;
+
     const noResponseReached = awaitingRiderReply && riderNoResponseSec >= 120;
     const noResponseLeft = Math.max(0, 120 - riderNoResponseSec);
 
+    const requiresPin = Boolean(activeRequest.pickupPin);
+    const pinMatches = !requiresPin || pinInput.trim() === activeRequest.pickupPin;
+
+    const totalStops = activeRequest.stops?.length || 0;
+    const pendingStop =
+      isInProgress && activeRequest.stops && completedStopsCount < totalStops
+        ? activeRequest.stops[completedStopsCount]
+        : null;
+
     return (
-      <div className="w-full bg-white dark:bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:p-5 space-y-3.5 max-h-[60dvh] lg:max-h-none overflow-y-auto">
+      <div className="w-full bg-white dark:bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:p-5 space-y-3 max-h-[65dvh] lg:max-h-none overflow-y-auto">
         <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto lg:hidden" />
+
+        {/* Smart Back-to-Back Queued Ride Banner (when near dropoff) */}
+        {isInProgress && queuedOffer && (
+          <div className="p-3 rounded-2xl bg-slate-950 text-white border border-[#34D186]/50 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[10px] font-extrabold uppercase tracking-wide text-[#34D186]">
+                  {queuedAccepted ? 'Next Ride Queued' : 'Back-to-Back Offer Near Dropoff'}
+                </div>
+                <div className="text-xs font-extrabold truncate">
+                  {queuedOffer.currency}
+                  {queuedOffer.estimatedFare.toFixed(2)} · {queuedOffer.pickupAddress} →{' '}
+                  {queuedOffer.dropoffArea}
+                </div>
+              </div>
+              {queuedAccepted ? (
+                <CheckCircle2 className="w-5 h-5 text-[#34D186] shrink-0" />
+              ) : (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={onDeclineQueuedOffer}
+                    className="px-2.5 h-8 rounded-lg bg-white/10 text-xs font-bold"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onAcceptQueuedOffer}
+                    className="px-3 h-8 rounded-lg bg-[#34D186] text-slate-950 text-xs font-extrabold"
+                  >
+                    Queue
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
               {isEnRoute && <span>Picking up {activeRequest.riderName}</span>}
               {isArrived && <span>Waiting for {activeRequest.riderName}</span>}
-              {isInProgress && <span>On trip · {activeRequest.category}</span>}
+              {isInProgress && (
+                <span>
+                  On trip · {activeRequest.category}
+                  {pendingStop ? ` · Stop ${completedStopsCount + 1}/${totalStops}` : ''}
+                </span>
+              )}
             </div>
             <h3 className="text-lg font-extrabold text-slate-950 dark:text-white truncate mt-0.5">
-              {isInProgress ? activeRequest.dropoffAddress : activeRequest.pickupAddress}
+              {pendingStop
+                ? `Stop ${completedStopsCount + 1}: ${pendingStop.address}`
+                : isInProgress
+                ? activeRequest.dropoffAddress
+                : activeRequest.pickupAddress}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
               {isArrived ? (
                 <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
                   <Clock className="w-3.5 h-3.5 text-emerald-500" />
-                  {isPaidWait
-                    ? `Paid waiting: ${formatTimer(waitSeconds - 180)}`
-                    : `Free wait: ${formatTimer(freeWaitRemaining)} remaining`}
+                  {isPaidWait ? (
+                    <span className="text-amber-600 dark:text-amber-400 font-extrabold">
+                      Paid wait: {formatTimer(paidWaitSeconds)} (+{activeRequest.currency}
+                      {accruedWaitFee.toFixed(2)} @ {activeRequest.currency}
+                      {waitRate.toFixed(2)}/m)
+                    </span>
+                  ) : (
+                    `Free wait: ${formatTimer(freeWaitRemaining)} remaining`
+                  )}
                 </span>
               ) : (
                 <span>
@@ -436,6 +642,60 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
             </div>
           </div>
         </div>
+
+        {/* 4-Digit Pickup PIN Verification before starting protected trips */}
+        {isArrived && requiresPin && activeRequest.pickupPin && (
+          <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-900 dark:text-white">
+                <KeyRound className="w-4 h-4 text-[#25B670]" />
+                <span>4-Digit Pickup PIN Verification</span>
+              </div>
+              <button
+                type="button"
+                onClick={onRequestPinInChat}
+                className="text-[11px] font-bold text-[#25B670] hover:underline"
+              >
+                Ask Rider PIN
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4));
+                  setPinError(false);
+                }}
+                placeholder="Enter 4-digit PIN"
+                className={`flex-1 h-10 px-3 rounded-xl bg-white dark:bg-slate-900 border text-sm font-mono-num font-extrabold tracking-widest text-slate-950 dark:text-white focus:outline-none ${
+                  pinError
+                    ? 'border-rose-500 ring-2 ring-rose-500/20'
+                    : pinMatches
+                    ? 'border-[#34D186]'
+                    : 'border-slate-200 dark:border-slate-700'
+                }`}
+              />
+              {pinMatches ? (
+                <span className="px-2.5 h-10 rounded-xl bg-[#34D186]/15 text-[#25B670] text-xs font-extrabold flex items-center gap-1">
+                  <Check className="w-4 h-4" />
+                  Verified
+                </span>
+              ) : (
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono-num">
+                  Passcode: {activeRequest.pickupPin}
+                </span>
+              )}
+            </div>
+            {pinError && (
+              <div className="text-[11px] font-bold text-rose-600 dark:text-rose-400">
+                Enter the passenger&apos;s 4-digit PIN ({activeRequest.pickupPin}) to start the trip.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 2-Minute Customer No-Response Alert & Cancel/Wait Choices */}
         {awaitingRiderReply && !isInProgress && (
@@ -525,9 +785,31 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
           <SlideToConfirm label="Slide to arrive at pickup" onConfirm={onArrivePickup} variant="green" />
         )}
         {isArrived && (
-          <SlideToConfirm label="Slide to start trip" onConfirm={onStartTrip} variant="green" />
+          <SlideToConfirm
+            label={requiresPin && !pinMatches ? 'Enter PIN to unlock start' : 'Slide to start trip'}
+            onConfirm={() => {
+              if (requiresPin && !pinMatches) {
+                setPinError(true);
+                return;
+              }
+              onStartTrip(accruedWaitFee, requiresPin);
+            }}
+            variant="green"
+          />
         )}
-        {isInProgress && (
+        {isInProgress && pendingStop && (
+          <button
+            type="button"
+            onClick={() => setCompletedStopsCount((c) => c + 1)}
+            className="w-full h-13 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>
+              Complete Stop {completedStopsCount + 1} of {totalStops}
+            </span>
+          </button>
+        )}
+        {isInProgress && !pendingStop && (
           <SlideToConfirm label="Slide to complete trip" onConfirm={onCompleteTrip} variant="danger" />
         )}
       </div>
@@ -535,9 +817,11 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
   }
 
   if (status === 'TRIP_COMPLETED' && activeRequest) {
-    const commission = Number((activeRequest.estimatedFare * 0.15).toFixed(2));
+    const waitFee = activeRequest.waitFeeTotal || 0;
+    const grossWithWait = Number((activeRequest.estimatedFare + waitFee).toFixed(2));
+    const commission = Number((grossWithWait * 0.15).toFixed(2));
     const tipBonus = selectedStars === 5 ? 2.0 : 0;
-    const net = Number((activeRequest.estimatedFare - commission + tipBonus).toFixed(2));
+    const net = Number((grossWithWait - commission + tipBonus).toFixed(2));
     const feedbackTags = ['Polite', 'Ready on time', 'Great conversation', 'Clean'];
 
     const toggleTag = (tag: string) => {
@@ -552,7 +836,7 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
         <div className="flex items-center justify-between">
           <div>
             <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-              Trip completed
+              Trip completed {queuedAccepted ? '· Next ride queued' : ''}
             </span>
             <h3 className="text-3xl font-extrabold text-slate-950 dark:text-white font-mono-num mt-0.5">
               {activeRequest.currency}
@@ -566,12 +850,21 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
 
         <div className="border-t border-b border-slate-100 dark:border-slate-800 py-3 space-y-1.5 text-xs">
           <div className="flex justify-between text-slate-600 dark:text-slate-400">
-            <span>Gross fare ({activeRequest.paymentMethod})</span>
+            <span>Base trip fare ({activeRequest.paymentMethod})</span>
             <span className="font-mono-num font-semibold text-slate-900 dark:text-slate-200">
               {activeRequest.currency}
               {activeRequest.estimatedFare.toFixed(2)}
             </span>
           </div>
+          {waitFee > 0 && (
+            <div className="flex justify-between text-sky-600 dark:text-sky-400">
+              <span>Paid wait time meter</span>
+              <span className="font-mono-num font-semibold">
+                +{activeRequest.currency}
+                {waitFee.toFixed(2)}
+              </span>
+            </div>
+          )}
           {activeRequest.surgeBonus > 0 && (
             <div className="flex justify-between text-amber-600 dark:text-amber-400">
               <span>Surge multiplier ({activeRequest.surgeMultiplier.toFixed(1)}x)</span>
@@ -649,7 +942,7 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
           onClick={() => onSubmitRating(selectedStars, tipBonus)}
           className="w-full h-13 rounded-2xl bg-[#34D186] hover:bg-[#29BE77] text-slate-950 font-extrabold text-base transition-colors"
         >
-          Done &amp; Continue
+          {queuedAccepted ? 'Done · Start Queued Ride' : 'Done & Continue'}
         </button>
       </div>
     );
