@@ -9,12 +9,9 @@ import {
   HelpCircle,
   LogIn,
   LogOut,
-  MapPin,
-  Mic,
   Moon,
   RefreshCw,
   Shield,
-  ShieldCheck,
   Sun,
   User,
   UserPlus,
@@ -24,8 +21,6 @@ import {
 import { getCityById } from '../data/worldMapData';
 import { DriverDocument, DriverProfile, DriverSettings, Vehicle } from '../types/driver';
 import { NotificationPermissionState } from '../utils/notifications';
-import { AppPermissionsSnapshot } from '../utils/permissions';
-import { PWAInstallButton } from './PWAInstallButton';
 
 interface AccountViewProps {
   profile: DriverProfile;
@@ -36,7 +31,6 @@ interface AccountViewProps {
   riderRating: number;
   totalLifetimeTrips: number;
   notificationPermission: NotificationPermissionState;
-  permissionsSnapshot: AppPermissionsSnapshot;
   lastBackgroundSync: string;
   notificationsLog: string[];
   isInsuranceExpired: boolean;
@@ -46,7 +40,6 @@ interface AccountViewProps {
   onSignInGoogle: () => void;
   onSignOutGoogle: () => void;
   onOpenInsurance: () => void;
-  onOpenPermissionsModal: () => void;
   onEnablePushNotifications: () => void;
   onSendTestNotification: () => void;
   onRunManualRefresh: () => void;
@@ -61,7 +54,6 @@ export const AccountView: React.FC<AccountViewProps> = ({
   riderRating,
   totalLifetimeTrips,
   notificationPermission,
-  permissionsSnapshot,
   lastBackgroundSync,
   notificationsLog,
   isInsuranceExpired,
@@ -71,7 +63,6 @@ export const AccountView: React.FC<AccountViewProps> = ({
   onSignInGoogle,
   onSignOutGoogle,
   onOpenInsurance,
-  onOpenPermissionsModal,
   onEnablePushNotifications,
   onSendTestNotification,
   onRunManualRefresh,
@@ -150,8 +141,6 @@ export const AccountView: React.FC<AccountViewProps> = ({
               <FileCheck2 className="w-4 h-4 text-[#25B670]" />
               <span>Documents ({documents.length})</span>
             </button>
-
-            <PWAInstallButton variant="account" />
 
             <button
               type="button"
@@ -266,86 +255,11 @@ export const AccountView: React.FC<AccountViewProps> = ({
 
           {/* App, Sound & Background Refresh */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800 space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-base font-extrabold text-slate-950 dark:text-white">
-                App, alerts &amp; background sync
-              </h2>
-              <span className="text-[11px] font-bold text-[#25B670]">
-                Remembered per driver account
-              </span>
-            </div>
+            <h2 className="text-base font-extrabold text-slate-950 dark:text-white">
+              App, alerts &amp; background sync
+            </h2>
 
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {/* Device Permissions Manager */}
-              <div className="py-3.5 space-y-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-[#34D186]/15 flex items-center justify-center text-[#25B670] shrink-0">
-                      <ShieldCheck className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-bold text-slate-900 dark:text-white">
-                        Device permissions
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Location, microphone, alerts &amp; wake lock
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onOpenPermissionsModal}
-                    className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 text-xs font-extrabold shrink-0"
-                  >
-                    Allow / Manage
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 pl-0 sm:pl-13">
-                  <div className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 flex items-center gap-1.5 text-[11px] font-bold">
-                    <MapPin
-                      className={`w-3.5 h-3.5 shrink-0 ${
-                        permissionsSnapshot.location === 'granted'
-                          ? 'text-[#25B670]'
-                          : permissionsSnapshot.location === 'denied'
-                          ? 'text-rose-500'
-                          : 'text-amber-500'
-                      }`}
-                    />
-                    <span className="truncate text-slate-700 dark:text-slate-200">
-                      GPS: {permissionsSnapshot.location === 'granted' ? 'On' : permissionsSnapshot.location === 'denied' ? 'Blocked' : 'Ask'}
-                    </span>
-                  </div>
-                  <div className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 flex items-center gap-1.5 text-[11px] font-bold">
-                    <Mic
-                      className={`w-3.5 h-3.5 shrink-0 ${
-                        permissionsSnapshot.microphone === 'granted'
-                          ? 'text-[#25B670]'
-                          : permissionsSnapshot.microphone === 'denied'
-                          ? 'text-rose-500'
-                          : 'text-amber-500'
-                      }`}
-                    />
-                    <span className="truncate text-slate-700 dark:text-slate-200">
-                      Mic: {permissionsSnapshot.microphone === 'granted' ? 'On' : permissionsSnapshot.microphone === 'denied' ? 'Blocked' : 'Ask'}
-                    </span>
-                  </div>
-                  <div className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 flex items-center gap-1.5 text-[11px] font-bold">
-                    <Bell
-                      className={`w-3.5 h-3.5 shrink-0 ${
-                        permissionsSnapshot.notifications === 'granted'
-                          ? 'text-[#25B670]'
-                          : permissionsSnapshot.notifications === 'denied'
-                          ? 'text-rose-500'
-                          : 'text-amber-500'
-                      }`}
-                    />
-                    <span className="truncate text-slate-700 dark:text-slate-200">
-                      Push: {permissionsSnapshot.notifications === 'granted' ? 'On' : permissionsSnapshot.notifications === 'denied' ? 'Blocked' : 'Ask'}
-                    </span>
-                  </div>
-                </div>
-              </div>
 
               {/* Push Notifications */}
               <div className="py-3.5 space-y-2.5">
