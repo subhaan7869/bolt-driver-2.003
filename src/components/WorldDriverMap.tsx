@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import {
   BatteryCharging,
-  Camera,
-  CloudRain,
   Compass,
   CornerUpLeft,
   CornerUpRight,
@@ -12,33 +10,26 @@ import {
   Gauge,
   Globe,
   LocateFixed,
+  Mic,
+  MicOff,
   Minus,
   Navigation,
   Plus,
   RotateCw,
   ShieldAlert,
-  Sun,
   Volume2,
   VolumeX,
-  Wind,
-  X,
-  Zap,
 } from 'lucide-react';
 import { WORLD_CITIES, exactDistanceKm } from '../data/worldMapData';
-import { formatMiles, formatTurnDistanceImperial, kmToMi, kmhToMph } from '../utils/units';
 import {
-  ChargingStation,
-  CleanAirZone,
   DistrictDemandZone,
   DriverStatus,
   LatLng,
   ManeuverStep,
   RideRequest,
-  SpeedCamera,
   SurgeZone,
   TaxiRank,
   Vehicle,
-  WeatherForecast,
 } from '../types/driver';
 import { D3DemandHeatmap } from './D3DemandHeatmap';
 
@@ -56,42 +47,27 @@ interface WorldDriverMapProps {
   remainingEtaMin: number;
   remainingDistKm: number;
   surgeZones: SurgeZone[];
-  districtDemandZones?: DistrictDemandZone[];
-  cleanAirZones?: CleanAirZone[];
-  speedCameras?: SpeedCamera[];
-  chargingStations?: ChargingStation[];
-  weatherForecast?: WeatherForecast | null;
-  postedLimitMph?: number;
-  nearbyCamera?: SpeedCamera | null;
-  nearbyCameraDistM?: number | null;
-  activeCleanAirZone?: CleanAirZone | null;
-  zoneLoggedToday?: boolean;
-  activePitStop?: ChargingStation | null;
-  activePitStopRoute?: LatLng[];
-  stealthRecordingActive?: boolean;
-  showHeatmap?: boolean;
-  headingUpNav?: boolean;
+  districtDemandZones: DistrictDemandZone[];
+  showHeatmap: boolean;
+  headingUpNav: boolean;
   ranks: TaxiRank[];
   activeRankId: string | null;
-  rankQueuePos?: number | null;
-  activeVehicle?: Vehicle;
+  rankQueuePos: number | null;
+  activeVehicle: Vehicle;
   darkMode: boolean;
   soundEnabled: boolean;
   isLiveGps: boolean;
   gpsLoading: boolean;
   isRerouting?: boolean;
+  isMicListening?: boolean;
+  micTranscript?: string | null;
   currentCityId: string;
   destinationTarget: LatLng | null;
-  onToggleLiveGps?: () => void;
-  onRequestLiveGps?: () => void;
-  onToggleHeatmap?: () => void;
-  onToggleHeadingUp?: () => void;
-  onRefuelOrCharge?: () => void;
-  onLogZoneCharge?: (zone: CleanAirZone) => void;
-  onRouteToStation?: (station: ChargingStation) => void;
-  onCompletePitStop?: () => void;
-  onCancelPitStop?: () => void;
-  onToggleStealthSafety?: () => void;
+  onToggleLiveGps: () => void;
+  onToggleHeatmap: () => void;
+  onToggleHeadingUp: () => void;
+  onToggleMic?: () => void;
+  onRefuelOrCharge: () => void;
   onSelectCity: (cityId: string) => void;
   onToggleSound: () => void;
   onSelectSurgeZone?: (zone: SurgeZone) => void;
@@ -113,56 +89,27 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   remainingEtaMin,
   remainingDistKm,
   surgeZones,
-  districtDemandZones = [],
-  cleanAirZones = [],
-  speedCameras = [],
-  chargingStations = [],
-  weatherForecast = null,
-  postedLimitMph = 30,
-  nearbyCamera = null,
-  nearbyCameraDistM = null,
-  activeCleanAirZone = null,
-  zoneLoggedToday = false,
-  activePitStop = null,
-  activePitStopRoute = [],
-  stealthRecordingActive = false,
-  showHeatmap = false,
-  headingUpNav = false,
+  districtDemandZones,
+  showHeatmap,
+  headingUpNav,
   ranks,
   activeRankId,
-  rankQueuePos = null,
-  activeVehicle = {
-    id: 'veh-default',
-    makeModel: 'Tesla Model 3 Long Range',
-    plate: 'LR74 BLT',
-    color: 'Pearl White',
-    year: 2024,
-    fuelType: 'Electric',
-    categories: ['Bolt', 'Comfort', 'Bolt Green'],
-    imageUrl: '/assets/aistudio/image_adf30014.png',
-    isActive: true,
-    rangeKm: 365,
-    maxRangeKm: 500,
-    odometerKm: 18420,
-    nextServiceKm: 25000,
-    tyreCheckKm: 22000,
-  },
+  rankQueuePos,
+  activeVehicle,
   darkMode,
   soundEnabled,
   isLiveGps,
   gpsLoading,
-  isRerouting = false,
+  isRerouting,
+  isMicListening = false,
+  micTranscript = null,
   currentCityId,
   destinationTarget,
-  onToggleLiveGps = () => {},
-  onToggleHeatmap = () => {},
-  onToggleHeadingUp = () => {},
-  onRefuelOrCharge = () => {},
-  onLogZoneCharge,
-  onRouteToStation,
-  onCompletePitStop,
-  onCancelPitStop,
-  onToggleStealthSafety,
+  onToggleLiveGps,
+  onToggleHeatmap,
+  onToggleHeadingUp,
+  onToggleMic,
+  onRefuelOrCharge,
   onSelectCity,
   onToggleSound,
   onSelectSurgeZone,
@@ -175,16 +122,23 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const driverMarkerRef = useRef<L.Marker | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
+  const liveRouteLayerRef = useRef<L.LayerGroup | null>(null);
+  const traveledLineRef = useRef<L.Polyline | null>(null);
+  const aheadHaloLineRef = useRef<L.Polyline | null>(null);
+  const aheadLineRef = useRef<L.Polyline | null>(null);
   const surgeLayerRef = useRef<L.LayerGroup | null>(null);
   const fittedRequestIdRef = useRef<string | null>(null);
   const prevNavPhaseRef = useRef<DriverStatus>('OFFLINE');
+  const driverPosRef = useRef<LatLng>(driverPos);
+  const unwrappedPuckHeadingRef = useRef<number>(driverHeading);
+  const unwrappedMapHeadingRef = useRef<number>(driverHeading);
+  const smoothCameraOffsetRef = useRef<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
+  const zoomLockUntilRef = useRef<number>(0);
 
   const [followDriver, setFollowDriver] = useState(true);
   const [showCityPicker, setShowCityPicker] = useState(false);
   const [tileSourceTier, setTileSourceTier] = useState<0 | 1 | 2>(0);
   const [serverCartoConfigured, setServerCartoConfigured] = useState<boolean>(false);
-  const safetyHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const safetyHoldTriggeredRef = useRef(false);
 
   const rawViteKey = (import.meta.env.VITE_CARTO_API_KEY || '').trim();
   const hasViteCartoKey = Boolean(rawViteKey && rawViteKey !== 'MY_CARTO_API_KEY');
@@ -213,6 +167,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       attributionControl: false,
     });
 
+    const liveRouteGroup = L.layerGroup().addTo(map);
     const layerGroup = L.layerGroup().addTo(map);
     const surgeGroup = L.layerGroup().addTo(map);
 
@@ -222,6 +177,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
 
     mapRef.current = map;
     setMapInstance(map);
+    liveRouteLayerRef.current = liveRouteGroup;
     routeLayerRef.current = layerGroup;
     surgeLayerRef.current = surgeGroup;
 
@@ -304,10 +260,12 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       prevNavPhaseRef.current !== status
     ) {
       setFollowDriver(true);
-      map.setView([driverPos.lat, driverPos.lng], 17, { animate: true });
+      zoomLockUntilRef.current = Date.now() + 420;
+      map.setView([driverPosRef.current.lat, driverPosRef.current.lng], 17, { animate: true });
     } else if (status === 'ONLINE_IDLE' && prevNavPhaseRef.current !== 'ONLINE_IDLE') {
       setFollowDriver(true);
-      map.setView([driverPos.lat, driverPos.lng], 15, { animate: true });
+      zoomLockUntilRef.current = Date.now() + 420;
+      map.setView([driverPosRef.current.lat, driverPosRef.current.lng], 15, { animate: true });
     }
 
     if (status !== 'INCOMING_REQUEST') {
@@ -315,9 +273,9 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     }
 
     prevNavPhaseRef.current = status;
-  }, [status, driverPos.lat, driverPos.lng]);
+  }, [status]);
 
-  // Update Driver Navigation Puck & Camera Follow
+  // Create/update Driver Puck icon ONLY when mode/status changes (zero per-frame DOM thrash)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -333,19 +291,19 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       ? `<div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:28px;height:26px;background:linear-gradient(to top, rgba(52,209,134,0.45), rgba(52,209,134,0));clip-path:polygon(15% 0%, 85% 0%, 60% 100%, 40% 100%);pointer-events:none;"></div>`
       : '';
 
-    // When Heading-Up rotation rotates the map canvas by -driverHeading, keep puck arrow facing upward relative to screen!
-    const puckRotate = headingUpNav && isNavigating ? driverHeading : driverHeading;
     const puckSize = isNavigating ? 42 : 36;
+    const diskSize = isNavigating ? 34 : 30;
+    const svgSize = isNavigating ? 18 : 16;
+    const rotTransition = isLiveGps ? 'transition:transform 650ms linear;' : '';
+
     const puckHtml = `
       <div style="position:relative;width:${puckSize}px;height:${puckSize}px;display:flex;align-items:center;justify-content:center;">
         ${pulseHtml}
-        <div style="position:relative;width:${isNavigating ? 34 : 30}px;height:${
-      isNavigating ? 34 : 30
-    }px;border-radius:9999px;background:#0F172A;border:3px solid #FFFFFF;box-shadow:0 6px 16px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;transform:rotate(${puckRotate}deg);transition:transform 180ms cubic-bezier(0.25, 1, 0.5, 1);">
+        <div data-bolt-puck-rot="1" style="position:relative;width:${diskSize}px;height:${diskSize}px;border-radius:9999px;background:#0F172A;border:3px solid #FFFFFF;box-shadow:0 6px 16px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;will-change:transform;transform:rotate(${unwrappedPuckHeadingRef.current}deg);${rotTransition}">
           ${beamHtml}
-          <svg width="${isNavigating ? 18 : 16}" height="${
-      isNavigating ? 18 : 16
-    }" viewBox="0 0 24 24" fill="${isBreak ? '#F59E0B' : isOnline ? '#34D186' : '#94A3B8'}">
+          <svg width="${svgSize}" height="${svgSize}" viewBox="0 0 24 24" fill="${
+      isBreak ? '#F59E0B' : isOnline ? '#34D186' : '#94A3B8'
+    }">
             <polygon points="12,2 20,20 12,15 4,20" />
           </svg>
         </div>
@@ -360,85 +318,78 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     });
 
     if (!driverMarkerRef.current) {
-      driverMarkerRef.current = L.marker([driverPos.lat, driverPos.lng], {
+      driverMarkerRef.current = L.marker([driverPosRef.current.lat, driverPosRef.current.lng], {
         icon,
         zIndexOffset: 1000,
       }).addTo(map);
     } else {
-      driverMarkerRef.current.setLatLng([driverPos.lat, driverPos.lng]);
       driverMarkerRef.current.setIcon(icon);
     }
+  }, [status, isNavigating, isLiveGps]);
 
-    if (followDriver) {
-      if (isNavigating && !headingUpNav) {
-        const rad = (driverHeading * Math.PI) / 180;
-        const lookAheadDeg = 0.00075;
-        const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
-        const sheetOffsetLat = isMobile ? -0.00055 : 0;
-        const targetLat = driverPos.lat + Math.cos(rad) * lookAheadDeg + sheetOffsetLat;
-        const targetLng = driverPos.lng + Math.sin(rad) * lookAheadDeg;
-        map.panTo([targetLat, targetLng], { animate: true, duration: 0.2 });
-      } else {
-        map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.25 });
+  // Smooth per-frame Driver Puck movement + unwrapped rotation + non-fighting Camera Follow
+  useEffect(() => {
+    driverPosRef.current = driverPos;
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Unwrap heading continuously so crossing North (359° -> 1°) never spins 358° backwards
+    const delta = ((driverHeading - unwrappedPuckHeadingRef.current + 540) % 360) - 180;
+    unwrappedPuckHeadingRef.current += delta;
+
+    if (driverMarkerRef.current) {
+      driverMarkerRef.current.setLatLng([driverPos.lat, driverPos.lng]);
+      const el = driverMarkerRef.current.getElement();
+      const rotEl = el?.querySelector('[data-bolt-puck-rot]') as HTMLElement | null;
+      if (rotEl) {
+        rotEl.style.transform = `rotate(${unwrappedPuckHeadingRef.current}deg)`;
       }
     }
-  }, [driverPos.lat, driverPos.lng, driverHeading, status, followDriver, isNavigating, headingUpNav]);
 
-  // Render Surge Zones, Geofenced Ranks, Clean Air/ULEZ Zones, Speed Cameras & EV/Fuel Hubs
+    if (followDriver && Date.now() >= zoomLockUntilRef.current) {
+      if (isNavigating && !headingUpNav) {
+        const rad = (driverHeading * Math.PI) / 180;
+        const lookAheadDeg = 0.00068;
+        const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+        const sheetOffsetLat = isMobile ? -0.0005 : 0;
+        const rawOffsetLat = Math.cos(rad) * lookAheadDeg + sheetOffsetLat;
+        const rawOffsetLng = Math.sin(rad) * lookAheadDeg;
+
+        // Smooth camera look-ahead offset so turning around corners never yanks the viewport
+        const blend = isLiveGps ? 0.5 : 0.14;
+        smoothCameraOffsetRef.current = {
+          lat: smoothCameraOffsetRef.current.lat + (rawOffsetLat - smoothCameraOffsetRef.current.lat) * blend,
+          lng: smoothCameraOffsetRef.current.lng + (rawOffsetLng - smoothCameraOffsetRef.current.lng) * blend,
+        };
+
+        const targetLat = driverPos.lat + smoothCameraOffsetRef.current.lat;
+        const targetLng = driverPos.lng + smoothCameraOffsetRef.current.lng;
+
+        if (!isLiveGps) {
+          // Instant frame-locked pan matches 60fps rAF with zero animation cancellation stutter
+          map.panTo([targetLat, targetLng], { animate: false });
+        } else {
+          map.panTo([targetLat, targetLng], { animate: true, duration: 0.85, easeLinearity: 1 });
+        }
+      } else if (isNavigating) {
+        if (!isLiveGps) {
+          map.panTo([driverPos.lat, driverPos.lng], { animate: false });
+        } else {
+          map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.85, easeLinearity: 1 });
+        }
+      } else {
+        map.panTo([driverPos.lat, driverPos.lng], { animate: true, duration: 0.25, easeLinearity: 0.9 });
+      }
+    }
+  }, [driverPos.lat, driverPos.lng, driverHeading, followDriver, isNavigating, headingUpNav, isLiveGps]);
+
+  // Render Surge Zones & Geofenced Airport/Stadium Taxi Ranks
   useEffect(() => {
     const group = surgeLayerRef.current;
     if (!group) return;
     group.clearLayers();
 
-    // Render Clean Air / Congestion polygons subtly across all drive states
-    cleanAirZones.forEach((zone) => {
-      const zColor = zone.zoneType === 'Congestion' ? '#EF4444' : '#38BDF8';
-      L.circle([zone.center.lat, zone.center.lng], {
-        radius: zone.radiusMeters,
-        color: zColor,
-        weight: 1.5,
-        dashArray: '6 6',
-        opacity: 0.5,
-        fillColor: zColor,
-        fillOpacity: 0.04,
-      }).addTo(group);
-    });
-
-    // Render Speed Camera pins along corridors
-    speedCameras.forEach((cam) => {
-      const camIcon = L.divIcon({
-        className: '',
-        html: `<div style="background:#0F172A;color:#fff;font-size:9px;font-weight:900;padding:2px 6px;border-radius:9999px;border:2px solid #EF4444;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;display:inline-flex;align-items:center;gap:3px;">
-          <span style="color:#F87171;">📷</span>
-          <span>${cam.limitMph}</span>
-        </div>`,
-        iconSize: [40, 20],
-        iconAnchor: [20, 10],
-      });
-      L.marker([cam.coords.lat, cam.coords.lng], { icon: camIcon, zIndexOffset: 320 }).addTo(group);
-    });
-
     if (status !== 'OFFLINE' && status !== 'ONLINE_IDLE' && status !== 'ON_BREAK') return;
-
-    // Render EV Chargers / Fuel Stations when idle/offline/break
-    chargingStations.forEach((stn) => {
-      const isSelected = activePitStop?.id === stn.id;
-      const stnColor = stn.type === 'Ultra-Rapid EV' ? '#25B670' : '#F59E0B';
-      const stnIcon = L.divIcon({
-        className: '',
-        html: `<div style="background:${isSelected ? '#25B670' : '#0F172A'};color:${
-          isSelected ? '#0F172A' : '#FFFFFF'
-        };font-size:10px;font-weight:800;padding:3px 7px;border-radius:10px;border:1.5px solid ${stnColor};box-shadow:0 3px 10px rgba(0,0,0,0.28);white-space:nowrap;display:inline-flex;align-items:center;gap:3px;">
-          <span>${stn.type === 'Ultra-Rapid EV' ? '⚡' : '⛽'}</span>
-          <span>${stn.powerKw ? `${stn.powerKw}kW` : 'Hub'}</span>
-        </div>`,
-        iconSize: [72, 24],
-        iconAnchor: [36, 12],
-      });
-      L.marker([stn.coords.lat, stn.coords.lng], { icon: stnIcon, zIndexOffset: 380 })
-        .on('click', () => onRouteToStation?.(stn))
-        .addTo(group);
-    });
 
     surgeZones.forEach((zone) => {
       const color = zone.demandLevel === 'Peak' ? '#F97316' : '#34D186';
@@ -471,7 +422,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
 
     ranks.forEach((rank) => {
       const joined = activeRankId === rank.id;
-      const distM = exactDistanceKm(driverPos, rank.center) * 1000;
+      const distM = exactDistanceKm(driverPosRef.current, rank.center) * 1000;
       const insideGeofence = distM <= rank.geofenceRadiusMeters;
       const hubColor =
         rank.hubType === 'airport' ? '#38BDF8' : rank.hubType === 'stadium' ? '#A855F7' : '#25B670';
@@ -514,45 +465,14 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         .on('click', () => onSelectRank?.(rank))
         .addTo(group);
     });
-  }, [
-    surgeZones,
-    ranks,
-    cleanAirZones,
-    speedCameras,
-    chargingStations,
-    activePitStop,
-    activeRankId,
-    rankQueuePos,
-    status,
-    driverPos.lat,
-    driverPos.lng,
-    onSelectSurgeZone,
-    onSelectRank,
-    onRouteToStation,
-  ]);
+  }, [surgeZones, ranks, activeRankId, rankQueuePos, status, onSelectSurgeZone, onSelectRank]);
 
-  // Render Route Polylines, Multistop Pins, Destination & Full-Trip Zoom Out
+  // Render Static Route Pins, Preview Dropoff & Fit Bounds ONLY when trip/route structure changes
   useEffect(() => {
     const group = routeLayerRef.current;
     const map = mapRef.current;
     if (!group || !map) return;
     group.clearLayers();
-
-    if (
-      activePitStop &&
-      activePitStopRoute.length > 1 &&
-      (status === 'OFFLINE' || status === 'ONLINE_IDLE' || status === 'ON_BREAK')
-    ) {
-      L.polyline(
-        activePitStopRoute.map((p) => [p.lat, p.lng] as [number, number]),
-        {
-          color: '#0EA5E9',
-          weight: 5,
-          opacity: 0.92,
-          dashArray: '8 6',
-        }
-      ).addTo(group);
-    }
 
     if (
       destinationTarget &&
@@ -577,57 +497,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
           opacity: 0.88,
         }
       ).addTo(group);
-    }
-
-    if (
-      (status === 'INCOMING_REQUEST' ||
-        status === 'EN_ROUTE_PICKUP' ||
-        status === 'ARRIVED_PICKUP' ||
-        status === 'IN_PROGRESS') &&
-      activeRoute.length > 1
-    ) {
-      if (isNavigating && currentRouteIndex > 0) {
-        const traveled = activeRoute.slice(0, Math.min(activeRoute.length, currentRouteIndex + 1));
-        if (traveled.length > 1) {
-          L.polyline(
-            traveled.map((p) => [p.lat, p.lng] as [number, number]),
-            {
-              color: '#64748B',
-              weight: 5,
-              opacity: 0.35,
-            }
-          ).addTo(group);
-        }
-        const ahead = [
-          driverPos,
-          ...activeRoute.slice(Math.min(activeRoute.length - 1, currentRouteIndex + 1)),
-        ];
-        if (ahead.length > 1) {
-          const aheadLatLngs = ahead.map((p) => [p.lat, p.lng] as [number, number]);
-          L.polyline(aheadLatLngs, {
-            color: '#0F172A',
-            weight: 9,
-            opacity: 0.42,
-          }).addTo(group);
-          L.polyline(aheadLatLngs, {
-            color: '#34D186',
-            weight: 5.5,
-            opacity: 0.98,
-          }).addTo(group);
-        }
-      } else {
-        const latlngs = activeRoute.map((p) => [p.lat, p.lng] as [number, number]);
-        L.polyline(latlngs, {
-          color: '#0F172A',
-          weight: 8,
-          opacity: 0.35,
-        }).addTo(group);
-        L.polyline(latlngs, {
-          color: '#34D186',
-          weight: 5,
-          opacity: 0.96,
-        }).addTo(group);
-      }
     }
 
     if (
@@ -706,7 +575,7 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     if (status === 'INCOMING_REQUEST' && activeRequest && fittedRequestIdRef.current !== activeRequest.id) {
       fittedRequestIdRef.current = activeRequest.id;
       const allPoints: LatLng[] = [
-        driverPos,
+        driverPosRef.current,
         activeRequest.pickupCoords,
         ...(activeRequest.stops?.map((s) => s.coords) || []),
         activeRequest.dropoffCoords,
@@ -724,23 +593,79 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
       });
       setFollowDriver(false);
     }
-  }, [
-    status,
-    activeRequest,
-    activeRoute,
-    previewDropoffRoute,
-    activePitStop,
-    activePitStopRoute,
-    currentRouteIndex,
-    destinationTarget,
-    darkMode,
-    isNavigating,
-    driverPos.lat,
-    driverPos.lng,
-  ]);
+  }, [status, activeRequest, activeRoute, previewDropoffRoute, destinationTarget, darkMode]);
+
+  // Update persistent Active Route Polylines in-place via setLatLngs (zero flicker)
+  useEffect(() => {
+    const liveGroup = liveRouteLayerRef.current;
+    if (!liveGroup) return;
+
+    const showActive =
+      (status === 'INCOMING_REQUEST' ||
+        status === 'EN_ROUTE_PICKUP' ||
+        status === 'ARRIVED_PICKUP' ||
+        status === 'IN_PROGRESS') &&
+      activeRoute.length > 1;
+
+    if (!showActive) {
+      if (traveledLineRef.current || aheadHaloLineRef.current || aheadLineRef.current) {
+        liveGroup.clearLayers();
+        traveledLineRef.current = null;
+        aheadHaloLineRef.current = null;
+        aheadLineRef.current = null;
+      }
+      return;
+    }
+
+    if (!traveledLineRef.current) {
+      traveledLineRef.current = L.polyline([], {
+        color: '#64748B',
+        weight: 5,
+        opacity: 0.35,
+      }).addTo(liveGroup);
+    }
+    if (!aheadHaloLineRef.current) {
+      aheadHaloLineRef.current = L.polyline([], {
+        color: '#0F172A',
+        weight: 9,
+        opacity: 0.42,
+      }).addTo(liveGroup);
+    }
+    if (!aheadLineRef.current) {
+      aheadLineRef.current = L.polyline([], {
+        color: '#34D186',
+        weight: 5.5,
+        opacity: 0.98,
+      }).addTo(liveGroup);
+    }
+
+    if (isNavigating && currentRouteIndex >= 0) {
+      const traveledPts =
+        currentRouteIndex > 0
+          ? [...activeRoute.slice(0, Math.min(activeRoute.length, currentRouteIndex + 1)), driverPos]
+          : [];
+      const aheadPts = [
+        driverPos,
+        ...activeRoute.slice(Math.min(activeRoute.length - 1, currentRouteIndex + 1)),
+      ];
+
+      traveledLineRef.current.setLatLngs(
+        traveledPts.map((p) => [p.lat, p.lng] as [number, number])
+      );
+      const aheadLatLngs = aheadPts.map((p) => [p.lat, p.lng] as [number, number]);
+      aheadHaloLineRef.current.setLatLngs(aheadLatLngs);
+      aheadLineRef.current.setLatLngs(aheadLatLngs);
+    } else {
+      const fullLatLngs = activeRoute.map((p) => [p.lat, p.lng] as [number, number]);
+      traveledLineRef.current.setLatLngs([]);
+      aheadHaloLineRef.current.setLatLngs(fullLatLngs);
+      aheadLineRef.current.setLatLngs(fullLatLngs);
+    }
+  }, [status, activeRoute, currentRouteIndex, driverPos.lat, driverPos.lng, isNavigating]);
 
   const handleRecenter = () => {
     setFollowDriver(true);
+    zoomLockUntilRef.current = Date.now() + 420;
     mapRef.current?.setView([driverPos.lat, driverPos.lng], isNavigating ? 17 : 15, {
       animate: true,
     });
@@ -781,17 +706,6 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
 
   const rangePct = Math.round((activeVehicle.rangeKm / Math.max(1, activeVehicle.maxRangeKm)) * 100);
   const lowRangeWarning = rangePct <= 25;
-  const nearestStation = useMemo(() => {
-    if (chargingStations.length === 0) return null;
-    return [...chargingStations].sort(
-      (a, b) => exactDistanceKm(driverPos, a.coords) - exactDistanceKm(driverPos, b.coords)
-    )[0];
-  }, [chargingStations, driverPos]);
-
-  const currentSpeedMph = kmhToMph(navSpeedKmh);
-  const isOverspeed = currentSpeedMph > postedLimitMph;
-  const cameraDistYards =
-    nearbyCameraDistM !== null ? Math.max(10, Math.round(nearbyCameraDistM * 1.09361)) : null;
 
   const renderDirectionIcon = (dir?: 'left' | 'right' | 'straight', sizeClass = 'w-5 h-5 sm:w-6 sm:h-6') => {
     if (dir === 'left') return <CornerUpLeft className={`${sizeClass} stroke-[2.5]`} />;
@@ -799,15 +713,21 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
     return <Navigation className={`${sizeClass} stroke-[2.5]`} />;
   };
 
-  const mapRotationStyle: React.CSSProperties | undefined =
+  // Continuous unwrapped Heading-Up angle so crossing North (359° -> 1°) rotates smoothly
+  const mapHeadingDelta = ((driverHeading - unwrappedMapHeadingRef.current + 540) % 360) - 180;
+  unwrappedMapHeadingRef.current += mapHeadingDelta;
+
+  const mapRotationStyle: React.CSSProperties =
     headingUpNav && isNavigating && followDriver
       ? {
-          transform: `rotate(${-driverHeading}deg) scale(1.42)`,
-          transition: 'transform 220ms linear',
+          transform: `rotate(${-unwrappedMapHeadingRef.current}deg) scale(1.42)`,
+          transition: isLiveGps ? 'transform 850ms linear' : 'none',
+          willChange: 'transform',
         }
       : {
           transform: 'rotate(0deg) scale(1)',
-          transition: 'transform 220ms ease-out',
+          transition: 'transform 260ms ease-out',
+          willChange: 'transform',
         };
 
   return (
@@ -834,119 +754,9 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         onClose={onToggleHeatmap}
       />
 
-      {/* Live Weather & Event Surge Pill (top-left below earnings bar when idle) */}
-      {weatherForecast && !isNavigating && !showHeatmap && (
-        <div className="absolute top-[max(3.6rem,calc(env(safe-area-inset-top)+2.9rem))] left-2.5 lg:left-5 z-[385] pointer-events-auto">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/92 dark:bg-slate-900/92 backdrop-blur-md shadow-md border border-slate-200/80 dark:border-slate-700 text-[11px] font-bold text-slate-800 dark:text-slate-100">
-            {weatherForecast.isRaining ? (
-              <CloudRain className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-            ) : (
-              <Sun className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            )}
-            <span className="font-mono-num">{weatherForecast.tempC}°C</span>
-            <span className="text-slate-400">·</span>
-            <span className="truncate max-w-[110px] sm:max-w-none">{weatherForecast.condition}</span>
-            {weatherForecast.windKmh >= 24 && (
-              <span className="hidden sm:inline-flex items-center gap-0.5 text-slate-500">
-                <Wind className="w-3 h-3" />
-                {kmhToMph(weatherForecast.windKmh)} mph
-              </span>
-            )}
-            {weatherForecast.rainSurgeBoost > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-600 dark:text-orange-400 font-extrabold text-[10px] whitespace-nowrap">
-                +{weatherForecast.rainSurgeBoost.toFixed(2)}x Demand
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Active Pit-Stop Route Banner */}
-      {activePitStop && !isNavigating && !showHeatmap && (
-        <div className="absolute top-[max(5.65rem,calc(env(safe-area-inset-top)+4.95rem))] left-2.5 right-[54px] lg:left-5 lg:right-auto lg:w-[400px] z-[396]">
-          <div className="rounded-2xl p-2.5 bg-sky-950 text-white border border-sky-500/60 shadow-xl flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <Zap className="w-4 h-4 text-[#34D186] shrink-0" />
-              <div className="text-[11px] min-w-0">
-                <div className="font-extrabold truncate">
-                  Pit-Stop: {activePitStop.name}
-                </div>
-                <div className="text-sky-200 truncate">
-                  {formatMiles(exactDistanceKm(driverPos, activePitStop.coords))} · {activePitStop.priceLabel}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                type="button"
-                onClick={onCompletePitStop}
-                className="px-2.5 py-1.5 rounded-xl bg-[#34D186] text-slate-950 text-[11px] font-extrabold"
-              >
-                Arrive &amp; Top Up
-              </button>
-              <button
-                type="button"
-                onClick={onCancelPitStop}
-                aria-label="Cancel pit-stop route"
-                className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-white"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Clean Air / Congestion Zone Entry Warning */}
-      {activeCleanAirZone && !showHeatmap && (
-        <div
-          className={`absolute left-2.5 right-[54px] lg:left-5 lg:right-auto lg:w-[400px] z-[392] ${
-            isNavigating
-              ? 'top-[max(8.2rem,calc(env(safe-area-inset-top)+7.4rem))]'
-              : activePitStop
-              ? 'top-[max(9.6rem,calc(env(safe-area-inset-top)+8.8rem))]'
-              : 'top-[max(5.65rem,calc(env(safe-area-inset-top)+4.95rem))]'
-          }`}
-        >
-          <div className="rounded-2xl px-3 py-2 bg-slate-900/95 text-white border border-sky-400/40 shadow-lg flex items-center justify-between gap-2">
-            <div className="text-[11px] min-w-0">
-              <div className="font-extrabold truncate flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-sky-400 shrink-0" />
-                <span>Inside {activeCleanAirZone.name}</span>
-              </div>
-              <div className="text-slate-300 truncate">
-                {activeCleanAirZone.evExempt && activeVehicle.fuelType === 'Electric'
-                  ? 'EV Exempt (£0.00 daily fee)'
-                  : `Daily ${activeCleanAirZone.zoneType} charge: £${activeCleanAirZone.dailyFee.toFixed(2)}`}
-              </div>
-            </div>
-            {!(activeCleanAirZone.evExempt && activeVehicle.fuelType === 'Electric') && (
-              <button
-                type="button"
-                disabled={zoneLoggedToday}
-                onClick={() => onLogZoneCharge?.(activeCleanAirZone)}
-                className={`px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shrink-0 ${
-                  zoneLoggedToday
-                    ? 'bg-emerald-500/20 text-[#34D186]'
-                    : 'bg-sky-500 hover:bg-sky-400 text-slate-950'
-                }`}
-              >
-                {zoneLoggedToday ? 'Logged' : 'Log Toll'}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Low EV / Fuel Range Guard Suggestion Banner */}
-      {lowRangeWarning && !isNavigating && !showHeatmap && !activePitStop && (
-        <div
-          className={`absolute left-2.5 right-[54px] lg:left-5 lg:right-auto lg:w-[400px] z-[395] ${
-            activeCleanAirZone
-              ? 'top-[max(9.4rem,calc(env(safe-area-inset-top)+8.6rem))]'
-              : 'top-[max(5.7rem,calc(env(safe-area-inset-top)+5rem))]'
-          }`}
-        >
+      {lowRangeWarning && !isNavigating && !showHeatmap && (
+        <div className="absolute top-[max(3.85rem,calc(env(safe-area-inset-top)+3.15rem))] left-2.5 right-[54px] lg:left-5 lg:right-auto lg:w-[400px] z-[395]">
           <div className="rounded-2xl p-2.5 bg-amber-50 dark:bg-amber-950/90 border border-amber-300 dark:border-amber-800 shadow-lg flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               {activeVehicle.fuelType === 'Electric' ? (
@@ -956,39 +766,27 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
               )}
               <div className="text-[11px] min-w-0">
                 <div className="font-extrabold text-amber-950 dark:text-amber-200 truncate">
-                  Low {activeVehicle.fuelType === 'Electric' ? 'Battery' : 'Fuel'} ·{' '}
-                  {Math.round(kmToMi(activeVehicle.rangeKm))} mi left
+                  Low {activeVehicle.fuelType === 'Electric' ? 'Battery' : 'Fuel'} · {activeVehicle.rangeKm} km left
                 </div>
                 <div className="text-amber-800/80 dark:text-amber-300/80 truncate">
-                  Bolt City trips paused until top-up
+                  Out-of-city Bolt City jobs paused until recharge
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              {nearestStation && onRouteToStation && (
-                <button
-                  type="button"
-                  onClick={() => onRouteToStation(nearestStation)}
-                  className="px-2 py-1.5 rounded-xl bg-[#34D186] text-slate-950 text-[11px] font-extrabold shrink-0"
-                >
-                  Route {activeVehicle.fuelType === 'Electric' ? 'Charger' : 'Fuel'}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={onRefuelOrCharge}
-                className="px-2 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 text-[11px] font-extrabold shrink-0"
-              >
-                {activeVehicle.fuelType === 'Electric' ? 'Charge' : 'Refuel'}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onRefuelOrCharge}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 text-[11px] font-extrabold shrink-0"
+            >
+              {activeVehicle.fuelType === 'Electric' ? 'Charge' : 'Refuel'}
+            </button>
           </div>
         </div>
       )}
 
       {/* Top Real-Time Turn-by-Turn Navigation HUD */}
       {isNavigating && (
-        <div className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-2.5 right-[52px] sm:left-4 sm:right-auto sm:w-[410px] z-[400] pointer-events-auto space-y-1.5">
+        <div className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-2.5 right-[52px] sm:left-4 sm:right-auto sm:w-[400px] z-[400] pointer-events-auto space-y-1.5">
           <div className="bg-[#0F172A] text-white rounded-2xl p-2.5 sm:p-3.5 shadow-xl border border-white/10 flex items-center gap-2.5 sm:gap-3">
             <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-[#34D186] text-slate-950 flex items-center justify-center shrink-0 shadow-md">
               {renderDirectionIcon(currentManeuver?.direction)}
@@ -996,7 +794,9 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-1.5 sm:gap-2">
                 <span className="text-base sm:text-xl font-extrabold font-mono-num tracking-tight">
-                  {formatTurnDistanceImperial(distToManeuverMeters)}
+                  {distToManeuverMeters >= 1000
+                    ? `${(distToManeuverMeters / 1000).toFixed(1)} km`
+                    : `${distToManeuverMeters} m`}
                 </span>
                 <span className="text-[11px] sm:text-xs text-[#34D186] font-bold whitespace-nowrap">
                   {isRerouting
@@ -1041,38 +841,18 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
               </div>
             )}
 
-            <div className="inline-flex items-center gap-2 bg-white/95 dark:bg-slate-900/95 text-slate-900 dark:text-white rounded-xl px-2 py-1 text-[11px] font-extrabold shadow-lg border border-slate-200/80 dark:border-slate-700 font-mono-num">
-              {/* Posted UK Circular Speed Limit Sign */}
-              <span
-                className="w-7 h-7 rounded-full bg-white border-[2.5px] border-rose-600 text-slate-950 text-[10px] font-black flex items-center justify-center shrink-0"
-                title={`Posted speed limit: ${postedLimitMph} mph`}
-              >
-                {postedLimitMph}
-              </span>
-              <span
-                className={`inline-flex items-center gap-1 ${
-                  isOverspeed ? 'text-rose-600 dark:text-rose-400 animate-pulse' : 'text-[#25B670]'
-                }`}
-              >
+            <div className="inline-flex items-center gap-2 bg-white/95 dark:bg-slate-900/95 text-slate-900 dark:text-white rounded-xl px-2.5 py-1.5 text-[11px] font-extrabold shadow-lg border border-slate-200/80 dark:border-slate-700 font-mono-num">
+              <span className="inline-flex items-center gap-1 text-[#25B670]">
                 <Gauge className="w-3.5 h-3.5" />
-                {currentSpeedMph} mph
+                {navSpeedKmh} km/h
               </span>
               <span className="text-slate-300 dark:text-slate-600">·</span>
               <span>{remainingEtaMin} min</span>
               <span className="text-slate-300 dark:text-slate-600">·</span>
-              <span>{formatMiles(remainingDistKm)}</span>
+              <span>{remainingDistKm.toFixed(1)} km</span>
               <span className="text-slate-300 dark:text-slate-600">·</span>
               <span className="text-slate-500 dark:text-slate-400 font-semibold">ETA {etaClock}</span>
             </div>
-
-            {nearbyCamera && cameraDistYards !== null && (
-              <div className="inline-flex items-center gap-1.5 bg-rose-600 text-white rounded-xl px-2.5 py-1 text-[11px] font-extrabold shadow-lg animate-pulse">
-                <Camera className="w-3.5 h-3.5 shrink-0" />
-                <span>
-                  {nearbyCamera.cameraType} Cam ({nearbyCamera.limitMph} mph) · {cameraDistYards} yd
-                </span>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -1089,61 +869,61 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
         </button>
       )}
 
-      {/* Right Floating Map Controls — compact on phones, non-overlapping vertical rail */}
+      {/* Live Voice / Mic Listening Indicator Banner */}
+      {(isMicListening || micTranscript) && (
+        <div className="absolute left-3 right-14 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 bottom-[calc(14.75rem+env(safe-area-inset-bottom,0px))] lg:bottom-8 z-[415] flex justify-start sm:justify-center pointer-events-none">
+          <div className="px-3.5 py-2 rounded-full bg-slate-950/95 text-white border border-emerald-400/50 shadow-2xl flex items-center gap-2 text-xs font-bold max-w-xs sm:max-w-sm">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
+            <span className="truncate">
+              {micTranscript
+                ? `“${micTranscript}”`
+                : 'Listening… say "Online", "Accept", "Recenter"'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Right Floating Map Controls — compact on phones, Zoom + Mic always visible */}
       <div
-        className={`absolute right-2.5 sm:right-3 z-[420] flex flex-col gap-1.5 sm:gap-2 ${
+        className={`absolute right-2 sm:right-3 z-[420] flex flex-col gap-1 sm:gap-1.5 ${
           isNavigating
             ? 'top-[max(0.75rem,env(safe-area-inset-top))]'
-            : 'top-[max(3.75rem,calc(env(safe-area-inset-top)+3rem))] lg:top-3.5'
+            : 'top-[max(3.65rem,calc(env(safe-area-inset-top)+2.85rem))] lg:top-3.5'
         }`}
       >
         <button
           type="button"
-          onPointerDown={() => {
-            safetyHoldTriggeredRef.current = false;
-            safetyHoldTimerRef.current = setTimeout(() => {
-              safetyHoldTriggeredRef.current = true;
-              onToggleStealthSafety?.();
-            }, 950);
-          }}
-          onPointerUp={() => {
-            if (safetyHoldTimerRef.current) {
-              clearTimeout(safetyHoldTimerRef.current);
-              safetyHoldTimerRef.current = null;
-            }
-          }}
-          onPointerLeave={() => {
-            if (safetyHoldTimerRef.current) {
-              clearTimeout(safetyHoldTimerRef.current);
-              safetyHoldTimerRef.current = null;
-            }
-          }}
-          onPointerCancel={() => {
-            if (safetyHoldTimerRef.current) {
-              clearTimeout(safetyHoldTimerRef.current);
-              safetyHoldTimerRef.current = null;
-            }
-          }}
-          onClick={() => {
-            if (safetyHoldTriggeredRef.current) {
-              safetyHoldTriggeredRef.current = false;
-              return;
-            }
-            onOpenSafety();
-          }}
-          aria-label="Safety Toolkit (Hold 1s for stealth recording)"
-          className={`relative w-9 h-9 sm:w-11 sm:h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center hover:scale-105 active:scale-95 transition-transform ${
-            stealthRecordingActive
-              ? 'bg-rose-600 text-white border-rose-400 animate-pulse'
-              : 'bg-white/95 dark:bg-slate-900/95 border-slate-200/80 dark:border-slate-700 text-sky-600 dark:text-sky-400'
-          }`}
-          title="Tap: Safety Toolkit · Hold 1s: Stealth Safety Recording"
+          onClick={onOpenSafety}
+          aria-label="Safety Toolkit"
+          className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-sky-600 dark:text-sky-400 hover:scale-105 active:scale-95 transition-transform"
+          title="Safety Toolkit"
         >
           <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5" />
-          {stealthRecordingActive && (
-            <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-rose-500 border-2 border-white" />
-          )}
         </button>
+
+        {onToggleMic && (
+          <button
+            type="button"
+            onClick={onToggleMic}
+            aria-label={isMicListening ? 'Stop voice microphone' : 'Voice command & audio mic'}
+            className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full backdrop-blur-md shadow-lg border flex items-center justify-center active:scale-95 transition-all ${
+              isMicListening
+                ? 'bg-rose-600 text-white border-rose-400 animate-pulse'
+                : 'bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-white border-slate-200/80 dark:border-slate-700'
+            }`}
+            title={
+              isMicListening
+                ? 'Listening — tap to stop'
+                : 'Hands-free Voice Mic ("Go online", "Accept", "Recenter")'
+            }
+          >
+            {isMicListening ? (
+              <MicOff className="w-4 h-4 sm:w-5 sm:h-5" />
+            ) : (
+              <Mic className="w-4 h-4 sm:w-5 sm:h-5 text-[#25B670]" />
+            )}
+          </button>
+        )}
 
         {!isNavigating && (
           <button
@@ -1257,20 +1037,28 @@ export const WorldDriverMap: React.FC<WorldDriverMapProps> = ({
           <Compass className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
 
-        <div className="hidden sm:flex flex-col rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 overflow-hidden">
+        <div className="flex flex-col rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg border border-slate-200/80 dark:border-slate-700 overflow-hidden">
           <button
             type="button"
-            onClick={() => mapRef.current?.zoomIn()}
+            onClick={() => {
+              zoomLockUntilRef.current = Date.now() + 350;
+              mapRef.current?.zoomIn();
+            }}
             aria-label="Zoom in"
-            className="w-11 h-10 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border-b border-slate-200/70 dark:border-slate-700"
+            title="Zoom in"
+            className="w-9 h-8 sm:w-11 sm:h-10 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:bg-slate-200 dark:active:bg-slate-700 border-b border-slate-200/70 dark:border-slate-700"
           >
             <Plus className="w-4 h-4" />
           </button>
           <button
             type="button"
-            onClick={() => mapRef.current?.zoomOut()}
+            onClick={() => {
+              zoomLockUntilRef.current = Date.now() + 350;
+              mapRef.current?.zoomOut();
+            }}
             aria-label="Zoom out"
-            className="w-11 h-10 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+            title="Zoom out"
+            className="w-9 h-8 sm:w-11 sm:h-10 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:bg-slate-200 dark:active:bg-slate-700"
           >
             <Minus className="w-4 h-4" />
           </button>

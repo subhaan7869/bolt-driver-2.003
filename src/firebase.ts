@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { GoogleAuthProvider, getAuth } from 'firebase/auth';
-import { doc, getDocFromServer, getFirestore, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDocFromServer, getFirestore, updateDoc } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -88,7 +88,7 @@ export async function initializeFCMToken(uid: string): Promise<string | null> {
         serviceWorkerRegistration: reg,
       }).catch(() => null);
       if (token) {
-        await setDoc(doc(db, 'users', uid), { fcmToken: token }, { merge: true }).catch(() => {});
+        await updateDoc(doc(db, 'users', uid), { fcmToken: token }).catch(() => {});
         return token;
       }
     }

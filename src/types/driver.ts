@@ -142,35 +142,6 @@ export interface RideRequest {
   isOutOfCity?: boolean;
   willRiderReply?: boolean;
   note?: string;
-  tollOrAirportFee?: number;
-  tollLabel?: string;
-}
-
-export interface CleanAirZone {
-  id: string;
-  name: string;
-  zoneType: 'Congestion' | 'ULEZ' | 'Clean Air';
-  center: LatLng;
-  radiusMeters: number;
-  dailyFee: number;
-  evExempt: boolean;
-}
-
-export interface SpeedCamera {
-  id: string;
-  name: string;
-  limitMph: number;
-  coords: LatLng;
-  cameraType: 'Fixed' | 'Average' | 'Red Light';
-}
-
-export interface WeatherForecast {
-  tempC: number;
-  condition: string;
-  isRaining: boolean;
-  windKmh: number;
-  rainSurgeBoost: number;
-  eventSurgeNote?: string;
 }
 
 export interface ScheduledRide {
@@ -248,8 +219,6 @@ export interface CompletedTrip {
   distanceFare: number;
   timeFare: number;
   waitFee: number;
-  tollFee?: number;
-  tollLabel?: string;
   surgeMultiplier?: number;
   grossFare: number;
   boltCommission: number;
@@ -259,17 +228,6 @@ export interface CompletedTrip {
   riderRatingGiven?: number;
   incidentNote?: string;
   hasAudioClip?: boolean;
-  lostItemReport?: {
-    item: string;
-    reportedAt: string;
-    returnFeeCredited?: number;
-  };
-  cleaningFeeClaim?: {
-    amount: number;
-    reason: string;
-    status: 'submitted' | 'approved';
-    submittedAt: string;
-  };
 }
 
 export type ExpenseCategory = 'EV Charging' | 'Fuel' | 'Car Wash' | 'Toll' | 'Parking';
@@ -359,7 +317,6 @@ export interface ChargingStation {
   type: 'Ultra-Rapid EV' | 'Fuel & EV Hub';
   distanceKm: number;
   priceLabel: string;
-  powerKw?: number;
   coords: LatLng;
 }
 
@@ -384,9 +341,7 @@ export interface CampaignQuest {
 
 export interface DriverSettings {
   darkMode: boolean;
-  autoNightMode?: boolean;
   soundAlerts: boolean;
-  voiceGuidance?: boolean;
   autoAccept: boolean;
   acceptCash: boolean;
   allowBidOffers: boolean;

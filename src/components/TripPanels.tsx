@@ -20,7 +20,6 @@ import {
   Zap,
 } from 'lucide-react';
 import { DriverStatus, RideRequest, ScheduledRide, TaxiRank } from '../types/driver';
-import { formatMiles, kmToMi } from '../utils/units';
 import { SlideToConfirm } from './SlideToConfirm';
 
 interface TripPanelsProps {
@@ -73,7 +72,6 @@ interface TripPanelsProps {
   onOpenCancelModal: () => void;
   onWaitLongerNoResponse: () => void;
   onCancelNoResponseCollectFee: () => void;
-  onToggleTripToll?: () => void;
   onSubmitRating: (rating: number, tipBonus: number) => void;
 }
 
@@ -127,7 +125,6 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
   onOpenCancelModal,
   onWaitLongerNoResponse,
   onCancelNoResponseCollectFee,
-  onToggleTripToll,
   onSubmitRating,
 }) => {
   const [waitSeconds, setWaitSeconds] = useState(0);
@@ -193,16 +190,7 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
   const ringOffset = ringCirc * (1 - goalPct / 100);
   const shiftHours = Math.max(0.1, shiftElapsedSec / 3600);
   const perHourRate = shiftElapsedSec >= 60 ? todayEarnings / shiftHours : 0;
-  const shiftDistanceMi = kmToMi(shiftDistanceKm);
-  const perMileRate = shiftDistanceMi > 0 ? todayEarnings / shiftDistanceMi : 0;
-  const driveHours = shiftElapsedSec / 3600;
-  const breakRecommended = driveHours >= 5.5;
-  const driveCapReached = driveHours >= 10;
-  const formatShiftClock = (sec: number) => {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    return `${h}h ${m.toString().padStart(2, '0')}m`;
-  };
+  const perKmRate = shiftDistanceKm > 0 ? todayEarnings / shiftDistanceKm : 0;
 
   if (status === 'OFFLINE') {
     return (
@@ -422,7 +410,7 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
                 </span>
                 {isRandomWait ? ' (Random)' : ''} · {currency}
                 {perHourRate.toFixed(0)}/hr · {currency}
-                {perMileRate.toFixed(2)}/mi
+                {perKmRate.toFixed(2)}/km
               </p>
             </div>
           </div>
@@ -474,33 +462,17 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
           </div>
         )}
 
-        {/* Driving Hours Compliance & Daily Goal Strip */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-[10px] text-slate-400">
-            <span>
-              {breakRecommended
-                ? driveCapReached
-                  ? '10h daily drive cap reached — End shift'
-                  : `Break due soon (${formatShiftClock(shiftElapsedSec)} / 10h)`
-                : shiftElapsedSec >= 60
-                ? `Drive ${formatShiftClock(shiftElapsedSec)} / 10h`
-                : backgroundRefreshEnabled
-                ? `Synced ${lastRefreshLabel}`
-                : 'Scanning surges'}
-            </span>
-            <span className="font-mono-num">
-              {currency}
-              {todayEarnings.toFixed(0)} / {currency}
-              {dailyGoal} goal
-            </span>
-          </div>
-          <div className="h-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className={`h-full w-1/3 rounded-full animate-[pulse_1.6s_ease-in-out_infinite] ${
-                driveCapReached ? 'bg-rose-500' : breakRecommended ? 'bg-amber-500' : 'bg-[#34D186]'
-              }`}
-            />
-          </div>
+        {/* Searching bar */}
+        <div className="flex items-center justify-between text-[10px] text-slate-400">
+          <span>{backgroundRefreshEnabled ? `Synced ${lastRefreshLabel}` : 'Scanning surges'}</span>
+          <span className="font-mono-num">
+            {currency}
+            {todayEarnings.toFixed(0)} / {currency}
+            {dailyGoal} goal
+          </span>
+        </div>
+        <div className="h-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-full w-1/3 bg-[#34D186] rounded-full animate-[pulse_1.6s_ease-in-out_infinite]" />
         </div>
 
         {/* Compact Bottom Pop-Up Menu Trigger Bar */}
@@ -756,7 +728,7 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
                 </span>
               ) : (
                 <span>
-                  {remainingEtaMin} min · {formatMiles(remainingDistKm)} · {activeRequest.currency}
+                  {remainingEtaMin} min · {remainingDistKm.toFixed(1)} km · {activeRequest.currency}
                   {activeRequest.estimatedFare.toFixed(2)} ({activeRequest.paymentMethod})
                 </span>
               )}
@@ -949,11 +921,10 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
 
   if (status === 'TRIP_COMPLETED' && activeRequest) {
     const waitFee = activeRequest.waitFeeTotal || 0;
-    const tollFee = activeRequest.tollOrAirportFee || 0;
-    const fareForCommission = Number((activeRequest.estimatedFare + waitFee).toFixed(2));
-    const commission = Number((fareForCommission * 0.15).toFixed(2));
+    const grossWithWait = Number((activeRequest.estimatedFare + waitFee).toFixed(2));
+    const commission = Number((grossWithWait * 0.15).toFixed(2));
     const tipBonus = selectedStars === 5 ? 2.0 : 0;
-    const net = Number((fareForCommission - commission + tollFee + tipBonus).toFixed(2));
+    const net = Number((grossWithWait - commission + tipBonus).toFixed(2));
     const feedbackTags = ['Polite', 'Ready on time', 'Great conversation', 'Clean'];
 
     const toggleTag = (tag: string) => {
@@ -1006,15 +977,6 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
               </span>
             </div>
           )}
-          {tollFee > 0 && (
-            <div className="flex justify-between text-sky-600 dark:text-sky-400">
-              <span>{activeRequest.tollLabel || 'Toll / Airport pass-through'} (0% fee)</span>
-              <span className="font-mono-num font-semibold">
-                +{activeRequest.currency}
-                {tollFee.toFixed(2)}
-              </span>
-            </div>
-          )}
           <div className="flex justify-between text-slate-600 dark:text-slate-400">
             <span>Bolt service fee (15%)</span>
             <span className="font-mono-num">
@@ -1029,17 +991,6 @@ export const TripPanels: React.FC<TripPanelsProps> = ({
                 +{activeRequest.currency}
                 {tipBonus.toFixed(2)}
               </span>
-            </div>
-          )}
-          {onToggleTripToll && (
-            <div className="pt-1 flex justify-end">
-              <button
-                type="button"
-                onClick={onToggleTripToll}
-                className="text-[11px] font-bold text-[#25B670] hover:underline"
-              >
-                {tollFee > 0 ? 'Remove pass-through toll' : '+ Add £2.50 Bridge / Crossing Toll'}
-              </button>
             </div>
           )}
         </div>

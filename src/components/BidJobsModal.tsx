@@ -12,7 +12,6 @@ import {
   X,
 } from 'lucide-react';
 import { BidJobOffer } from '../types/driver';
-import { formatMiles } from '../utils/units';
 
 interface BidJobsModalProps {
   jobs: BidJobOffer[];
@@ -150,7 +149,7 @@ export const BidJobsModal: React.FC<BidJobsModalProps> = ({
                       {job.pickupAddress} → {job.dropoffAddress}
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
-                      {formatMiles(job.pickupDistanceKm)} away · Trip {formatMiles(job.tripDistanceKm)} ({job.tripEtaMin} min)
+                      {job.pickupDistanceKm} km away · Trip {job.tripDistanceKm} km ({job.tripEtaMin} min)
                     </div>
                   </div>
 

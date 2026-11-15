@@ -1,24 +1,19 @@
 import React, { useRef, useState } from 'react';
 import {
   AlertTriangle,
-  Award,
   Car,
   Check,
   Clock,
   Compass,
-  Flame,
   Gavel,
   Globe,
   Mic,
-  Moon,
   PhoneCall,
   Send,
   Share2,
   ShieldAlert,
   Square,
-  TrendingUp,
   Video,
-  Volume2,
   X,
 } from 'lucide-react';
 import { getCityById } from '../data/worldMapData';
@@ -29,7 +24,6 @@ import {
   LatLng,
   RideCategory,
 } from '../types/driver';
-import { formatMiles, kmToMi } from '../utils/units';
 
 // 1. Enhanced Trip Preferences Sheet (Bolt Flex, Bolt City, 1-5 min Job Timer, Daily Goal, Insurance Gating)
 interface PreferencesModalProps {
@@ -265,7 +259,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                 Max pickup distance
               </span>
               <span className="text-xs font-extrabold text-[#25B670] font-mono-num">
-                Up to {Math.round(kmToMi(settings.maxPickupKm))} mi
+                Up to {settings.maxPickupKm} km
               </span>
             </div>
             <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
@@ -280,7 +274,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                   }`}
                 >
-                  {Math.round(kmToMi(km))} mi
+                  {km} km
                 </button>
               ))}
             </div>
@@ -363,42 +357,6 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                 type="checkbox"
                 checked={settings.acceptCash}
                 onChange={(e) => onUpdateSettings({ acceptCash: e.target.checked })}
-                className="w-4 h-4 sm:w-5 sm:h-5 accent-[#34D186] rounded shrink-0"
-              />
-            </label>
-
-            <label className="flex items-center justify-between py-0.5 cursor-pointer gap-2">
-              <div className="min-w-0">
-                <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Moon className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                  <span>Auto night mode (dusk–dawn)</span>
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  Switch to dark map tiles after 18:00
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={Boolean(settings.autoNightMode)}
-                onChange={(e) => onUpdateSettings({ autoNightMode: e.target.checked })}
-                className="w-4 h-4 sm:w-5 sm:h-5 accent-[#34D186] rounded shrink-0"
-              />
-            </label>
-
-            <label className="flex items-center justify-between py-0.5 cursor-pointer gap-2">
-              <div className="min-w-0">
-                <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Volume2 className="w-3.5 h-3.5 text-[#25B670] shrink-0" />
-                  <span>Spoken voice turn guidance</span>
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  Read turn &amp; speed camera warnings aloud
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.voiceGuidance !== false}
-                onChange={(e) => onUpdateSettings({ voiceGuidance: e.target.checked })}
                 className="w-4 h-4 sm:w-5 sm:h-5 accent-[#34D186] rounded shrink-0"
               />
             </label>
@@ -1145,141 +1103,6 @@ export const SafetyModal: React.FC<SafetyModalProps> = ({
             </div>
           </div>
         )}
-      </div>
-    </div>
-  );
-};
-
-// 6. End-of-Shift Recap & Goal Streak Summary Modal
-export interface ShiftSummaryData {
-  durationSec: number;
-  distanceKm: number;
-  tripsCount: number;
-  grossEarnings: number;
-  expensesTotal: number;
-  netProfit: number;
-  perHour: number;
-  perMile: number;
-  goalTarget: number;
-  goalMet: boolean;
-  streakDays: number;
-  currency: string;
-}
-
-interface EndOfShiftSummaryModalProps {
-  summary: ShiftSummaryData | null;
-  onClose: () => void;
-}
-
-export const EndOfShiftSummaryModal: React.FC<EndOfShiftSummaryModalProps> = ({
-  summary,
-  onClose,
-}) => {
-  if (!summary) return null;
-
-  const hrs = Math.floor(summary.durationSec / 3600);
-  const mins = Math.floor((summary.durationSec % 3600) / 60);
-  const durationLabel = hrs > 0 ? `${hrs}h ${mins}m` : `${Math.max(1, mins)} min`;
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-        <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto sm:hidden" />
-
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-11 h-11 rounded-2xl bg-[#34D186]/15 text-[#25B670] flex items-center justify-center shrink-0">
-              <Award className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-lg font-extrabold text-slate-950 dark:text-white leading-tight">
-                Shift Recap
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {durationLabel} online · {formatMiles(summary.distanceKm)} driven
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close shift summary"
-            className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-slate-950 text-white space-y-1">
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
-            True Net Shift Profit (After Costs)
-          </div>
-          <div className="text-3xl font-extrabold font-mono-num text-[#34D186]">
-            {summary.currency}
-            {summary.netProfit.toFixed(2)}
-          </div>
-          <div className="text-xs text-slate-300 flex items-center gap-3 pt-1 font-mono-num">
-            <span>
-              Gross: {summary.currency}
-              {summary.grossEarnings.toFixed(2)}
-            </span>
-            <span>·</span>
-            <span className="text-rose-300">
-              Costs: -{summary.currency}
-              {summary.expensesTotal.toFixed(2)}
-            </span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
-            <div className="text-[10px] font-bold text-slate-400 uppercase">Trips</div>
-            <div className="text-base font-extrabold text-slate-950 dark:text-white font-mono-num mt-0.5">
-              {summary.tripsCount}
-            </div>
-          </div>
-          <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
-            <div className="text-[10px] font-bold text-slate-400 uppercase">Hourly</div>
-            <div className="text-base font-extrabold text-slate-950 dark:text-white font-mono-num mt-0.5">
-              {summary.currency}
-              {summary.perHour.toFixed(0)}/h
-            </div>
-          </div>
-          <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
-            <div className="text-[10px] font-bold text-slate-400 uppercase">Per Mile</div>
-            <div className="text-base font-extrabold text-slate-950 dark:text-white font-mono-num mt-0.5">
-              {summary.currency}
-              {summary.perMile.toFixed(2)}/mi
-            </div>
-          </div>
-        </div>
-
-        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            {summary.goalMet ? (
-              <Flame className="w-4 h-4 text-orange-500 shrink-0" />
-            ) : (
-              <TrendingUp className="w-4 h-4 text-[#25B670] shrink-0" />
-            )}
-            <span className="font-bold text-emerald-950 dark:text-emerald-200">
-              {summary.goalMet
-                ? `Daily goal (${summary.currency}${summary.goalTarget}) achieved!`
-                : `Goal progress: ${summary.currency}${summary.grossEarnings.toFixed(0)} / ${summary.currency}${summary.goalTarget}`}
-            </span>
-          </div>
-          <span className="font-extrabold text-[#25B670] whitespace-nowrap">
-            {summary.streakDays}d streak
-          </span>
-        </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full h-12 rounded-2xl bg-[#34D186] hover:bg-[#29BE77] text-slate-950 font-extrabold text-sm"
-        >
-          Done
-        </button>
       </div>
     </div>
   );
