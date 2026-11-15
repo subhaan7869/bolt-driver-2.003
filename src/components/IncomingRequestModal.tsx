@@ -6,7 +6,6 @@ import {
   CreditCard,
   Gavel,
   Globe,
-  KeyRound,
   Star,
   X,
   Zap,
@@ -55,6 +54,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
     return () => clearInterval(interval);
   }, [request.id, request.estimatedFare, request.category, safeTimeout, onDecline]);
 
+  // If driver is waiting on a bid or counter-offer and doesn't act, another driver can take it
   useEffect(() => {
     if (bidState !== 'waiting' && bidState !== 'countered') return;
     if (bidState === 'waiting') {
@@ -64,7 +64,9 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           setBidState('accepted');
           setTimeout(() => onAccept(bidAmount), 650);
         } else if (ratio <= 1.45) {
-          const counter = Number(((request.estimatedFare + bidAmount) / 2).toFixed(2));
+          const counter = Number(
+            ((request.estimatedFare + bidAmount) / 2).toFixed(2)
+          );
           setCustomerCounterFare(counter);
           setBidState('countered');
         } else {
@@ -86,6 +88,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
 
   return (
     <div className="w-full bg-white dark:bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden max-h-[76dvh] lg:max-h-none flex flex-col">
+      {/* Accept Window Progress Strip */}
       <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 shrink-0">
         <div
           className="h-full bg-[#34D186] transition-all duration-1000 ease-linear"
@@ -113,12 +116,6 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
                 <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400">
                   <Globe className="w-3 h-3" />
                   Out of City
-                </span>
-              )}
-              {request.pickupPin && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-[#25B670]">
-                  <KeyRound className="w-3 h-3" />
-                  PIN
                 </span>
               )}
               <span aria-hidden="true">·</span>
@@ -161,8 +158,8 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           </button>
         </div>
 
-        {/* Route Timeline (Pickup -> Optional Stops -> Dropoff) */}
-        <div className="relative pl-6 space-y-3 py-1">
+        {/* Route Timeline */}
+        <div className="relative pl-6 space-y-3.5 py-1">
           <div className="absolute left-[7px] top-3 bottom-3 w-0.5 bg-slate-200 dark:bg-slate-700" />
 
           <div className="relative">
@@ -174,18 +171,6 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
               {request.pickupAddress}
             </div>
           </div>
-
-          {request.stops?.map((stop, idx) => (
-            <div key={stop.id} className="relative">
-              <span className="absolute -left-6 top-1 w-3.5 h-3.5 rounded-full bg-amber-400 ring-4 ring-white dark:ring-slate-900" />
-              <div className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
-                Intermediate Stop {idx + 1}
-              </div>
-              <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
-                {stop.address}
-              </div>
-            </div>
-          ))}
 
           <div className="relative">
             <span className="absolute -left-6 top-1 w-3.5 h-3.5 rounded-[3px] bg-slate-900 dark:bg-white ring-4 ring-white dark:ring-slate-900" />
@@ -336,6 +321,7 @@ export const IncomingRequestModal: React.FC<IncomingRequestModalProps> = ({
           </div>
         )}
 
+        {/* Accept Action */}
         {bidState !== 'taken_by_other' && bidState !== 'accepted' && (
           <button
             type="button"

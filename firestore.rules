@@ -26,50 +26,6 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId && isValidId(userId);
     }
 
-    function isValidDriverSettings(s) {
-      return s is map
-        && s.keys().hasOnly([
-          'darkMode', 'soundAlerts', 'autoAccept', 'acceptCash', 'allowBidOffers',
-          'dispatchWaitSec', 'minFareFilter', 'maxPickupKm', 'minRiderRating',
-          'pushNotifications', 'backgroundRefresh', 'refreshIntervalSec',
-          'enabledCategories', 'dailyGoal', 'headingUpNav', 'showHeatmap',
-          'destinationFilter'
-        ])
-        && (!('darkMode' in s) || s.darkMode is bool)
-        && (!('soundAlerts' in s) || s.soundAlerts is bool)
-        && (!('autoAccept' in s) || s.autoAccept is bool)
-        && (!('acceptCash' in s) || s.acceptCash is bool)
-        && (!('allowBidOffers' in s) || s.allowBidOffers is bool)
-        && (!('pushNotifications' in s) || s.pushNotifications is bool)
-        && (!('backgroundRefresh' in s) || s.backgroundRefresh is bool)
-        && (!('headingUpNav' in s) || s.headingUpNav is bool)
-        && (!('showHeatmap' in s) || s.showHeatmap is bool)
-        && (!('dailyGoal' in s) || (s.dailyGoal is number && s.dailyGoal >= 20 && s.dailyGoal <= 2000))
-        && (!('dispatchWaitSec' in s) || s.dispatchWaitSec in [0, 60, 120, 180, 300])
-        && (!('minFareFilter' in s) || (s.minFareFilter is number && s.minFareFilter >= 0 && s.minFareFilter <= 1000))
-        && (!('maxPickupKm' in s) || (s.maxPickupKm is number && s.maxPickupKm >= 1 && s.maxPickupKm <= 100))
-        && (!('minRiderRating' in s) || (s.minRiderRating is number && s.minRiderRating >= 0 && s.minRiderRating <= 5))
-        && (!('refreshIntervalSec' in s) || s.refreshIntervalSec in [15, 30, 60])
-        && (!('enabledCategories' in s) || (
-          s.enabledCategories is list
-          && s.enabledCategories.size() >= 1
-          && s.enabledCategories.size() <= 10
-          && s.enabledCategories[0] is string
-        ))
-        && (!('destinationFilter' in s) || (
-          s.destinationFilter is map
-          && s.destinationFilter.keys().hasOnly(['enabled', 'targetCoords', 'targetLabel'])
-          && (!('enabled' in s.destinationFilter) || s.destinationFilter.enabled is bool)
-          && (!('targetLabel' in s.destinationFilter) || s.destinationFilter.targetLabel == null || (s.destinationFilter.targetLabel is string && s.destinationFilter.targetLabel.size() <= 120))
-          && (!('targetCoords' in s.destinationFilter) || s.destinationFilter.targetCoords == null || (
-            s.destinationFilter.targetCoords is map
-            && s.destinationFilter.targetCoords.keys().hasOnly(['lat', 'lng'])
-            && s.destinationFilter.targetCoords.lat is number
-            && s.destinationFilter.targetCoords.lng is number
-          ))
-        ));
-    }
-
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['uid', 'fullName', 'email'])
         && data.keys().hasOnly([
@@ -79,7 +35,7 @@ service cloud.firestore {
           'todayTripsCount', 'bankBalance', 'insuranceCoverage',
           'insuranceExpiry', 'documentExpiries', 'fcmToken',
           'insuredVehiclePlate', 'insuredVehicleModel', 'additionalDrivers',
-          'documentsUploaded', 'faceVerified', 'activeVehicleId', 'settings'
+          'documentsUploaded', 'faceVerified'
         ])
         && data.uid is string && data.uid == userId && data.uid.size() <= 128
         && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
@@ -96,47 +52,7 @@ service cloud.firestore {
         && (!('bankBalance' in data) || (data.bankBalance is number && data.bankBalance >= 0))
         && (!('insuranceCoverage' in data) || data.insuranceCoverage in ['taxi', 'food', 'all'])
         && (!('insuranceExpiry' in data) || (data.insuranceExpiry is string && data.insuranceExpiry.size() <= 32))
-        && (!('fcmToken' in data) || (data.fcmToken is string && data.fcmToken.size() <= 512))
-        && (!('activeVehicleId' in data) || (data.activeVehicleId is string && data.activeVehicleId.size() <= 64))
-        && (!('settings' in data) || isValidDriverSettings(data.settings));
-    }
-
-    function isValidExpense(data, userId, expenseId) {
-      return data.keys().hasAll(['id', 'uid', 'category', 'amount', 'dateIso', 'dayKey', 'createdAtMs'])
-        && data.keys().hasOnly(['id', 'uid', 'category', 'amount', 'note', 'dateIso', 'dayKey', 'createdAtMs'])
-        && data.id is string && data.id == expenseId && data.id.size() <= 64
-        && data.uid is string && data.uid == userId && data.uid.size() <= 128
-        && data.category in ['Fuel', 'EV Charging', 'Car Wash', 'Toll', 'Parking']
-        && data.amount is number && data.amount > 0 && data.amount <= 5000
-        && (!('note' in data) || (data.note is string && data.note.size() <= 140))
-        && data.dateIso is string && data.dateIso.size() <= 32
-        && data.dayKey is string && data.dayKey.size() <= 12
-        && data.createdAtMs is number;
-    }
-
-    function isValidIncident(data, userId, incidentId) {
-      return data.keys().hasAll(['id', 'uid', 'type', 'summary', 'hasAudioNote', 'vehiclePlate', 'createdAtLabel', 'createdAtMs'])
-        && data.keys().hasOnly([
-          'id', 'uid', 'type', 'summary', 'hasAudioNote', 'audioDurationSec',
-          'coords', 'tripId', 'riderName', 'vehiclePlate', 'createdAtLabel', 'createdAtMs'
-        ])
-        && data.id is string && data.id == incidentId && data.id.size() <= 64
-        && data.uid is string && data.uid == userId && data.uid.size() <= 128
-        && data.type in ['SOS / Emergency', 'Rider Safety', 'Traffic Incident', 'Vehicle / Dashcam']
-        && data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 300
-        && data.hasAudioNote is bool
-        && (!('audioDurationSec' in data) || (data.audioDurationSec is number && data.audioDurationSec >= 0 && data.audioDurationSec <= 600))
-        && (!('tripId' in data) || (data.tripId is string && data.tripId.size() <= 64))
-        && (!('riderName' in data) || (data.riderName is string && data.riderName.size() <= 80))
-        && (!('coords' in data) || (
-          data.coords is map
-          && data.coords.keys().hasOnly(['lat', 'lng'])
-          && data.coords.lat is number
-          && data.coords.lng is number
-        ))
-        && data.vehiclePlate is string && data.vehiclePlate.size() <= 24
-        && data.createdAtLabel is string && data.createdAtLabel.size() <= 40
-        && data.createdAtMs is number;
+        && (!('fcmToken' in data) || (data.fcmToken is string && data.fcmToken.size() <= 512));
     }
 
     match /users/{userId} {
@@ -159,34 +75,10 @@ service cloud.firestore {
           'todayTripsCount', 'bankBalance', 'insuranceCoverage',
           'insuranceExpiry', 'documentExpiries', 'fcmToken',
           'insuredVehiclePlate', 'insuredVehicleModel', 'additionalDrivers',
-          'documentsUploaded', 'faceVerified', 'activeVehicleId', 'settings'
+          'documentsUploaded', 'faceVerified'
         ]);
 
       allow delete: if isOwner(userId);
-
-      match /expenses/{expenseId} {
-        allow get: if isOwner(userId) && isValidId(expenseId);
-        allow list: if isOwner(userId) && resource.data.uid == request.auth.uid;
-        allow create: if isOwner(userId)
-          && isValidId(expenseId)
-          && request.auth.token.email_verified == true
-          && exists(/databases/$(database)/documents/users/$(userId))
-          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid
-          && isValidExpense(incoming(), userId, expenseId);
-        allow delete: if isOwner(userId) && isValidId(expenseId);
-      }
-
-      match /incidents/{incidentId} {
-        allow get: if isOwner(userId) && isValidId(incidentId);
-        allow list: if isOwner(userId) && resource.data.uid == request.auth.uid;
-        allow create: if isOwner(userId)
-          && isValidId(incidentId)
-          && request.auth.token.email_verified == true
-          && exists(/databases/$(database)/documents/users/$(userId))
-          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid
-          && isValidIncident(incoming(), userId, incidentId);
-        allow delete: if isOwner(userId) && isValidId(incidentId);
-      }
     }
   }
 }

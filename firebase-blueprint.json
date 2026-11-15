@@ -79,64 +79,15 @@
           "type": "string",
           "description": "Optional Firebase Cloud Messaging registration token",
           "maxLength": 512
-        },
-        "activeVehicleId": {
-          "type": "string",
-          "description": "ID of the driver's currently selected active vehicle",
-          "maxLength": 64
-        },
-        "settings": {
-          "type": "object",
-          "description": "Per-user remembered driver preferences, daily goal, map orientation, heatmap toggle, trip filters, theme, and notification settings"
         }
       },
       "required": ["uid", "fullName", "email"]
-    },
-    "ExpenseRecord": {
-      "title": "Driver Expense Log Entry",
-      "description": "Fuel, EV charging, toll, car wash, or parking expense recorded by the driver.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "category": { "type": "string", "enum": ["Fuel", "EV Charging", "Car Wash", "Toll", "Parking"] },
-        "amount": { "type": "number" },
-        "note": { "type": "string", "maxLength": 140 },
-        "dateIso": { "type": "string", "maxLength": 32 },
-        "dayKey": { "type": "string", "maxLength": 12 },
-        "createdAtMs": { "type": "number" }
-      },
-      "required": ["id", "uid", "category", "amount", "dateIso", "dayKey", "createdAtMs"]
-    },
-    "IncidentReport": {
-      "title": "Driver Safety Incident Report",
-      "description": "Emergency SOS, audio note, or dashcam safety report attached to a trip.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "type": { "type": "string", "enum": ["SOS / Emergency", "Rider Safety", "Traffic Incident", "Vehicle / Dashcam"] },
-        "summary": { "type": "string", "maxLength": 300 },
-        "hasAudioNote": { "type": "boolean" },
-        "vehiclePlate": { "type": "string", "maxLength": 24 },
-        "createdAtLabel": { "type": "string", "maxLength": 40 },
-        "createdAtMs": { "type": "number" }
-      },
-      "required": ["id", "uid", "type", "summary", "hasAudioNote", "vehiclePlate", "createdAtLabel", "createdAtMs"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },
       "description": "Private driver profile, live telemetry, earnings, and insurance state owned by userId."
-    },
-    "/users/{userId}/expenses/{expenseId}": {
-      "schema": { "$ref": "#/entities/ExpenseRecord" },
-      "description": "Driver expenses subcollection owned by userId."
-    },
-    "/users/{userId}/incidents/{incidentId}": {
-      "schema": { "$ref": "#/entities/IncidentReport" },
-      "description": "Driver safety incident logs subcollection owned by userId."
     }
   }
 }
