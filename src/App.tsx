@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { User as FirebaseUser, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import {
   Activity,
   AlertTriangle,
   Bell,
-  CalendarClock,
   Car,
   Eye,
   EyeOff,
@@ -18,18 +18,6 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  query,
-  setDoc,
-  updateDoc,
-  where,
-} from 'firebase/firestore';
 import { AccountCreationModal } from './components/AccountCreationModal';
 import { AccountView } from './components/AccountView';
 import { ActivityView } from './components/ActivityView';
@@ -48,7 +36,6 @@ import {
 } from './components/Overlays';
 import { PermissionsPromptModal } from './components/PermissionsPromptModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { ScheduledRidesView } from './components/ScheduledRidesView';
 import { TripPanels } from './components/TripPanels';
 import { WorldDriverMap } from './components/WorldDriverMap';
 import {
@@ -59,19 +46,15 @@ import {
   WEEKLY_EARNINGS_SERIES,
   calculateBearing,
   exactDistanceKm,
-  fetchMultiStopRoadRoute,
   fetchRoadRoute,
   generateBidJobsNear,
-  generateDistrictDemandNear,
   generateLiveRideRequest,
   generateRanksNear,
-  generateScheduledRidesNear,
   generateSurgeZonesNear,
   getCityById,
   getFutureIsoDate,
   getTodayDayKey,
   interpolateLatLng,
-  minDistanceToRouteMeters,
 } from './data/worldMapData';
 import {
   OperationType,
@@ -87,20 +70,15 @@ import {
   CampaignQuest,
   ChatMessage,
   CompletedTrip,
-  DistrictDemandZone,
   DriverDocument,
   DriverProfile,
   DriverSettings,
   DriverStatus,
-  ExpenseRecord,
   InAppToast,
-  IncidentReport,
   InsuranceCoverage,
   LatLng,
   ManeuverStep,
-  RideCategory,
   RideRequest,
-  ScheduledRide,
   SurgeZone,
   TaxiRank,
   Vehicle,
@@ -164,9 +142,6 @@ const DEFAULT_SETTINGS: DriverSettings = {
   backgroundRefresh: true,
   refreshIntervalSec: 30,
   enabledCategories: ['Bolt', 'Comfort', 'Bolt Green', 'Bolt Flex', 'Bolt City'],
-  dailyGoal: 150,
-  headingUpNav: false,
-  showHeatmap: false,
   destinationFilter: {
     enabled: false,
     targetCoords: null,
@@ -179,9 +154,6 @@ const resolveDispatchWaitSeconds = (settingSec: 0 | 60 | 120 | 180 | 300): numbe
 
 const SETTINGS_STORAGE_PREFIX = 'bolt_driver_settings_v1_';
 const VEHICLE_STORAGE_PREFIX = 'bolt_driver_vehicle_v1_';
-const VEHICLE_STATES_PREFIX = 'bolt_driver_vehicle_states_v1_';
-const EXPENSES_STORAGE_PREFIX = 'bolt_driver_expenses_v1_';
-const INCIDENTS_STORAGE_PREFIX = 'bolt_driver_incidents_v1_';
 const BOOT_PERMS_DONE_KEY = 'bolt_boot_permissions_done_v1';
 
 const getUserScopeKey = (
@@ -217,9 +189,6 @@ const sanitizeSettingsForFirestore = (s: DriverSettings): DriverSettings => {
     backgroundRefresh: Boolean(s.backgroundRefresh),
     refreshIntervalSec: validRefresh,
     enabledCategories: cleanCategories.length > 0 ? cleanCategories : ['Bolt'],
-    dailyGoal: Math.min(2000, Math.max(20, Number(s.dailyGoal) || 150)),
-    headingUpNav: Boolean(s.headingUpNav),
-    showHeatmap: Boolean(s.showHeatmap),
     destinationFilter: {
       enabled: Boolean(s.destinationFilter?.enabled),
       targetCoords:
@@ -299,24 +268,6 @@ const saveUserVehicleId = (scopeKey: string, vehicleId: string): void => {
   }
 };
 
-const loadScopedJson = <T,>(prefix: string, scopeKey: string, fallback: T): T => {
-  try {
-    const raw = localStorage.getItem(`${prefix}${scopeKey}`);
-    if (raw) return JSON.parse(raw) as T;
-  } catch {
-    // Ignore storage errors
-  }
-  return fallback;
-};
-
-const saveScopedJson = <T,>(prefix: string, scopeKey: string, value: T): void => {
-  try {
-    localStorage.setItem(`${prefix}${scopeKey}`, JSON.stringify(value));
-  } catch {
-    // Ignore storage errors
-  }
-};
-
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('map');
   const [status, setStatus] = useState<DriverStatus>('OFFLINE');
@@ -356,38 +307,24 @@ export default function App() {
   const [surgeZones, setSurgeZones] = useState<SurgeZone[]>(() =>
     generateSurgeZonesNear(initialCity.center, initialCity.id)
   );
-  const [districtDemandZones, setDistrictDemandZones] = useState<DistrictDemandZone[]>(() =>
-    generateDistrictDemandNear(initialCity.center, initialCity.id)
-  );
   const [ranks, setRanks] = useState<TaxiRank[]>(() =>
     generateRanksNear(initialCity.center, initialCity.id)
   );
   const [activeRankId, setActiveRankId] = useState<string | null>(null);
   const [rankQueuePos, setRankQueuePos] = useState<number | null>(null);
 
-  // Active request, routing & smart back-to-back queue
+  // Active request & routing
   const [activeRequest, setActiveRequest] = useState<RideRequest | null>(null);
-  const [queuedOffer, setQueuedOffer] = useState<RideRequest | null>(null);
-  const [queuedAccepted, setQueuedAccepted] = useState<boolean>(false);
-  const queuedOfferedForTripRef = useRef<string | null>(null);
-  const lastTripWaitFeeRef = useRef<number>(0);
-  const lastTripPinVerifiedRef = useRef<boolean>(false);
   const [activeRoute, setActiveRoute] = useState<LatLng[]>([]);
   const [previewDropoffRoute, setPreviewDropoffRoute] = useState<LatLng[]>([]);
   const [activeManeuvers, setActiveManeuvers] = useState<ManeuverStep[]>([]);
   const [currentManeuverIndex, setCurrentManeuverIndex] = useState<number>(0);
   const [currentRouteIndex, setCurrentRouteIndex] = useState<number>(0);
   const [navSpeedKmh, setNavSpeedKmh] = useState<number>(38);
-  const [isRerouting, setIsRerouting] = useState<boolean>(false);
-  const lastRerouteAtRef = useRef<number>(0);
   const routeProgressRef = useRef<{ index: number; progress: number }>({ index: 0, progress: 0 });
-  const currentManeuverIndexRef = useRef<number>(0);
-  const smoothHeadingRef = useRef<number>(45);
-  const smoothSpeedRef = useRef<number>(38);
-  const soundAlertsRef = useRef<boolean>(true);
   const gpsWatchIdRef = useRef<number | null>(null);
 
-  // Bid Marketplace (Bolt Flex) & Scheduled Rides Queue
+  // Bid Marketplace (Bolt Flex)
   const [bidJobs, setBidJobs] = useState<BidJobOffer[]>(() =>
     generateBidJobsNear(initialCity.center, initialCity.id, [
       'Bolt',
@@ -397,31 +334,14 @@ export default function App() {
       'Bolt City',
     ])
   );
-  const [scheduledRides, setScheduledRides] = useState<ScheduledRide[]>(() =>
-    generateScheduledRidesNear(initialCity.center, initialCity.id)
-  );
-  const remindedScheduleIdsRef = useRef<Set<string>>(new Set());
   const [showBidJobsModal, setShowBidJobsModal] = useState(false);
 
   // Business State — starts strictly at £0.00 and matches today's earnings
   const [trips, setTrips] = useState<CompletedTrip[]>(INITIAL_TRIPS);
   const [weeklySeries, setWeeklySeries] = useState(WEEKLY_EARNINGS_SERIES);
   const [campaigns, setCampaigns] = useState<CampaignQuest[]>(INITIAL_CAMPAIGNS);
-  const [expenses, setExpenses] = useState<ExpenseRecord[]>(() =>
-    loadScopedJson<ExpenseRecord[]>(EXPENSES_STORAGE_PREFIX, getUserScopeKey(profile), [])
-  );
-  const [incidents, setIncidents] = useState<IncidentReport[]>(() =>
-    loadScopedJson<IncidentReport[]>(INCIDENTS_STORAGE_PREFIX, getUserScopeKey(profile), [])
-  );
-  const [shiftElapsedSec, setShiftElapsedSec] = useState<number>(0);
-  const [shiftDistanceKm, setShiftDistanceKm] = useState<number>(0);
   const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
-    const scope = getUserScopeKey(profile);
-    const savedStates = loadScopedJson<Vehicle[] | null>(VEHICLE_STATES_PREFIX, scope, null);
-    if (savedStates && Array.isArray(savedStates) && savedStates.length > 0) {
-      return savedStates;
-    }
-    const savedVehId = loadUserVehicleId(scope);
+    const savedVehId = loadUserVehicleId(getUserScopeKey(profile));
     if (savedVehId && INITIAL_VEHICLES.some((v) => v.id === savedVehId)) {
       return INITIAL_VEHICLES.map((v) => ({ ...v, isActive: v.id === savedVehId }));
     }
@@ -496,14 +416,6 @@ export default function App() {
   const activeRank = ranks.find((r) => r.id === activeRankId) || null;
   const currency = activeCity.currency;
   const isOnline = status !== 'OFFLINE';
-  const nextClaimedScheduled = useMemo(
-    () =>
-      scheduledRides
-        .filter((r) => r.claimed)
-        .sort((a, b) => new Date(a.pickupTimeIso).getTime() - new Date(b.pickupTimeIso).getTime())[0] ||
-      null,
-    [scheduledRides]
-  );
 
   // Insurance Expiry Computation
   const insuranceExpiry = profile.documentExpiries?.['Vehicle Insurance'];
@@ -661,62 +573,7 @@ export default function App() {
 
               if (userData.cityId) {
                 setCurrentCityId(userData.cityId);
-                const c = getCityById(userData.cityId);
-                setDistrictDemandZones(generateDistrictDemandNear(c.center, c.id));
-                setScheduledRides(generateScheduledRidesNear(c.center, c.id));
               }
-              setExpenses(loadScopedJson<ExpenseRecord[]>(EXPENSES_STORAGE_PREFIX, nextScope, []));
-              setIncidents(loadScopedJson<IncidentReport[]>(INCIDENTS_STORAGE_PREFIX, nextScope, []));
-
-              // Sync expenses & incidents subcollections from Firestore
-              getDocs(
-                query(
-                  collection(db, 'users', fUser.uid, 'expenses'),
-                  where('uid', '==', fUser.uid),
-                  limit(100)
-                )
-              )
-                .then((snap) => {
-                  const remoteExps = snap.docs
-                    .map((d) => d.data() as ExpenseRecord)
-                    .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
-                  if (remoteExps.length > 0) {
-                    setExpenses(remoteExps);
-                    saveScopedJson(EXPENSES_STORAGE_PREFIX, nextScope, remoteExps);
-                  }
-                })
-                .catch((error) => {
-                  handleFirestoreError(
-                    error,
-                    OperationType.LIST,
-                    `users/${fUser.uid}/expenses`
-                  );
-                });
-
-              getDocs(
-                query(
-                  collection(db, 'users', fUser.uid, 'incidents'),
-                  where('uid', '==', fUser.uid),
-                  limit(60)
-                )
-              )
-                .then((snap) => {
-                  const remoteIncs = snap.docs
-                    .map((d) => d.data() as IncidentReport)
-                    .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
-                  if (remoteIncs.length > 0) {
-                    setIncidents(remoteIncs);
-                    saveScopedJson(INCIDENTS_STORAGE_PREFIX, nextScope, remoteIncs);
-                  }
-                })
-                .catch((error) => {
-                  handleFirestoreError(
-                    error,
-                    OperationType.LIST,
-                    `users/${fUser.uid}/incidents`
-                  );
-                });
-
               setShowAccountCreation(false);
               setIsProfileLoaded(true);
               initializeFCMToken(fUser.uid);
@@ -843,8 +700,7 @@ export default function App() {
     }
     saveUserSettings(activeUserScopeKey, settings);
     saveUserVehicleId(activeUserScopeKey, activeVehicle.id);
-    saveScopedJson(VEHICLE_STATES_PREFIX, activeUserScopeKey, vehicles);
-  }, [settings, activeVehicle.id, vehicles, activeUserScopeKey]);
+  }, [settings, activeVehicle.id, activeUserScopeKey]);
 
   // 2-Minute Customer No-Response Timer
   useEffect(() => {
@@ -860,34 +716,7 @@ export default function App() {
     return () => clearInterval(timer);
   }, [awaitingRiderReply, status]);
 
-  // Live Shift Elapsed Time Tracker (counts while online and not on break)
-  useEffect(() => {
-    if (status === 'OFFLINE' || status === 'ON_BREAK') return;
-    const timer = setInterval(() => {
-      setShiftElapsedSec((s) => s + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [status]);
-
-  // Taxi Rank Geofenced Auto-Detection & Queue Progression
-  useEffect(() => {
-    if (status !== 'ONLINE_IDLE') return;
-    if (!activeRankId) {
-      const entered = ranks.find(
-        (r) => exactDistanceKm(driverPos, r.center) * 1000 <= r.geofenceRadiusMeters
-      );
-      if (entered) {
-        setActiveRankId(entered.id);
-        setRankQueuePos(entered.queueCount + 1);
-        addToast(
-          'Geofenced Queue Joined',
-          `Spot #${entered.queueCount + 1} of ${entered.totalDrivers} at ${entered.name}`,
-          'info'
-        );
-      }
-    }
-  }, [status, activeRankId, driverPos, ranks, addToast]);
-
+  // Taxi Rank Queue Progression while Online
   useEffect(() => {
     if (!activeRankId || status !== 'ONLINE_IDLE') return;
     const timer = setInterval(() => {
@@ -895,36 +724,6 @@ export default function App() {
     }, 8000);
     return () => clearInterval(timer);
   }, [activeRankId, status]);
-
-  // Scheduled Ride Reminder Countdown Notifier
-  useEffect(() => {
-    const checkReminders = () => {
-      const now = Date.now();
-      scheduledRides.forEach((ride) => {
-        if (!ride.claimed) return;
-        const msLeft = new Date(ride.pickupTimeIso).getTime() - now;
-        const key5m = `${ride.id}-5m`;
-        const keyReady = `${ride.id}-ready`;
-        if (msLeft <= 0 && !remindedScheduleIdsRef.current.has(keyReady)) {
-          remindedScheduleIdsRef.current.add(keyReady);
-          sendNotification(
-            'Scheduled Pickup Ready',
-            `${ride.riderName} (${ride.pickupAddress}) is ready to launch now.`,
-            'alert'
-          );
-        } else if (msLeft > 0 && msLeft <= 5 * 60 * 1000 && !remindedScheduleIdsRef.current.has(key5m)) {
-          remindedScheduleIdsRef.current.add(key5m);
-          sendNotification(
-            'Upcoming Pre-Booked Ride',
-            `${ride.tag} pickup in under 5 min at ${ride.pickupAddress}`,
-            'info'
-          );
-        }
-      });
-    };
-    const timer = setInterval(checkReminders, 15000);
-    return () => clearInterval(timer);
-  }, [scheduledRides, sendNotification]);
 
   // Shift Start / Break / End with Screen Wake Lock
   const startShift = useCallback(() => {
@@ -973,23 +772,8 @@ export default function App() {
     startShift();
   }, [isInsuranceExpired, startShift, sendNotification]);
 
-  // Browser Geolocation: Live Phone GPS Mode vs Simulated Drive + Auto OSRM Reroute
-  const stopLiveGpsWatch = useCallback(() => {
-    if (gpsWatchIdRef.current !== null && typeof navigator !== 'undefined' && 'geolocation' in navigator) {
-      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
-      gpsWatchIdRef.current = null;
-    }
-  }, []);
-
-  const handleToggleLiveGps = useCallback(() => {
-    if (isLiveGps) {
-      stopLiveGpsWatch();
-      setIsLiveGps(false);
-      setIsRerouting(false);
-      addToast('Simulated Drive Mode', 'Switched back to smooth simulated road navigation.', 'info');
-      return;
-    }
-
+  // Browser Geolocation
+  const handleRequestLiveGps = useCallback(() => {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
       addToast('GPS Unavailable', 'Browser geolocation is unavailable on this device.', 'alert');
       return;
@@ -1009,149 +793,63 @@ export default function App() {
         setIsLiveGps(true);
         setGpsLoading(false);
         setSurgeZones(generateSurgeZonesNear(coords, currentCityId));
-        setDistrictDemandZones(generateDistrictDemandNear(coords, currentCityId));
         setRanks(generateRanksNear(coords, currentCityId));
-        setScheduledRides(generateScheduledRidesNear(coords, currentCityId));
         setBidJobs(generateBidJobsNear(coords, currentCityId, settings.enabledCategories));
-        addToast('Live Phone GPS Active', 'Tracking live coordinates with auto OSRM rerouting', 'success');
+        addToast('Live GPS Locked', 'Dispatch map centered on your real location', 'success');
       },
       () => {
         setGpsLoading(false);
-        addToast('GPS Permission Denied', 'Staying on simulated world city drive map.', 'info');
+        addToast('GPS Permission Denied', 'Using selected world city dispatch map.', 'info');
       },
       { enableHighAccuracy: true, timeout: 7000 }
     );
-  }, [isLiveGps, stopLiveGpsWatch, currentCityId, settings.enabledCategories, addToast]);
 
-  // Live Phone GPS watchPosition & Off-Route OSRM Auto-Rerouting
-  useEffect(() => {
-    if (!isLiveGps || typeof navigator === 'undefined' || !('geolocation' in navigator)) {
-      stopLiveGpsWatch();
-      return;
+    if (gpsWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
     }
-
-    stopLiveGpsWatch();
     gpsWatchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        const coords: LatLng = {
-          lat: Number(pos.coords.latitude.toFixed(6)),
-          lng: Number(pos.coords.longitude.toFixed(6)),
-        };
-        setDriverPos((prev) => {
-          const distMovedKm = exactDistanceKm(prev, coords);
-          if (pos.coords.heading !== null && !Number.isNaN(pos.coords.heading)) {
-            setDriverHeading(pos.coords.heading);
-          } else if (distMovedKm > 0.005) {
-            setDriverHeading(calculateBearing(prev, coords));
-          }
-          return coords;
-        });
-
-        if (pos.coords.speed !== null && !Number.isNaN(pos.coords.speed)) {
-          setNavSpeedKmh(Math.max(0, Math.round(pos.coords.speed * 3.6)));
-        }
-
-        if (
-          (status === 'EN_ROUTE_PICKUP' || status === 'IN_PROGRESS') &&
-          activeRequest &&
-          activeRoute.length > 1
-        ) {
-          // Track closest vertex along route for live GPS maneuver countdown & route trimming
-          let bestIdx = routeProgressRef.current.index;
-          let bestDist = Infinity;
-          for (let i = 0; i < activeRoute.length; i++) {
-            const d = exactDistanceKm(coords, activeRoute[i]);
-            if (d < bestDist) {
-              bestDist = d;
-              bestIdx = i;
-            }
-          }
-          if (bestIdx !== routeProgressRef.current.index) {
-            routeProgressRef.current = { index: bestIdx, progress: 0 };
-            setCurrentRouteIndex(bestIdx);
-            let matchedManIdx = currentManeuverIndexRef.current;
-            for (let m = matchedManIdx + 1; m < activeManeuvers.length; m++) {
-              if (bestIdx >= activeManeuvers[m].pointIndex) {
-                matchedManIdx = m;
-              } else {
-                break;
-              }
-            }
-            if (matchedManIdx > currentManeuverIndexRef.current) {
-              currentManeuverIndexRef.current = matchedManIdx;
-              setCurrentManeuverIndex(matchedManIdx);
-              playNavigationTurnPing(soundAlertsRef.current);
-            }
-          }
-
-          const offRouteMeters = minDistanceToRouteMeters(coords, activeRoute);
-          const now = Date.now();
-          if (offRouteMeters > 85 && now - lastRerouteAtRef.current > 10000) {
-            lastRerouteAtRef.current = now;
-            setIsRerouting(true);
-            const routePromise =
-              status === 'EN_ROUTE_PICKUP'
-                ? fetchRoadRoute(coords, activeRequest.pickupCoords)
-                : fetchMultiStopRoadRoute([
-                    coords,
-                    ...(activeRequest.stops || []).map((s) => s.coords),
-                    activeRequest.dropoffCoords,
-                  ]);
-
-            routePromise
-              .then((rerouted) => {
-                setActiveRoute(rerouted.points);
-                setActiveManeuvers(rerouted.maneuvers);
-                setCurrentRouteIndex(0);
-                currentManeuverIndexRef.current = 0;
-                setCurrentManeuverIndex(0);
-                routeProgressRef.current = { index: 0, progress: 0 };
-                setIsRerouting(false);
-                addToast('Route Recalculated', 'OSRM updated turn-by-turn path from GPS', 'info');
-              })
-              .catch(() => setIsRerouting(false));
-          }
+        if (status === 'OFFLINE' || status === 'ONLINE_IDLE' || status === 'ON_BREAK') {
+          setDriverPos({
+            lat: Number(pos.coords.latitude.toFixed(6)),
+            lng: Number(pos.coords.longitude.toFixed(6)),
+          });
         }
       },
       () => {},
-      { enableHighAccuracy: true, maximumAge: 4000 }
+      { enableHighAccuracy: true, maximumAge: 10000 }
     );
+  }, [currentCityId, settings.enabledCategories, addToast, status]);
 
-    return () => stopLiveGpsWatch();
-  }, [isLiveGps, status, activeRequest, activeRoute, activeManeuvers, stopLiveGpsWatch, addToast]);
+  useEffect(() => {
+    return () => {
+      if (gpsWatchIdRef.current !== null && 'geolocation' in navigator) {
+        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      }
+    };
+  }, []);
 
   const handleSelectCity = useCallback(
     (cityId: string) => {
       const city = getCityById(cityId);
       setIsLiveGps(false);
-      setIsRerouting(false);
       setCurrentCityId(city.id);
       setDriverPos(city.center);
       setActiveRankId(null);
       setRankQueuePos(null);
       setSurgeZones(generateSurgeZonesNear(city.center, city.id));
-      setDistrictDemandZones(generateDistrictDemandNear(city.center, city.id));
       setRanks(generateRanksNear(city.center, city.id));
-      setScheduledRides(generateScheduledRidesNear(city.center, city.id));
       setBidJobs(generateBidJobsNear(city.center, city.id, settings.enabledCategories));
       addToast('City Switched', `Dispatch map moved to ${city.name}, ${city.country}`, 'info');
     },
     [settings.enabledCategories, addToast]
   );
 
-  // Trigger Live Ride Request (with EV/Fuel Range Guard)
+  // Trigger Live Ride Request
   const triggerRideOffer = useCallback(async () => {
-    const allowedCats: RideCategory[] = isInsuranceExpired
-      ? ['Delivery']
+    const allowedCats = isInsuranceExpired
+      ? (['Delivery'] as const)
       : settings.enabledCategories;
-
-    if (activeVehicle.rangeKm < 95 && allowedCats.includes('Bolt City')) {
-      addToast(
-        'EV / Fuel Range Guard',
-        `Only ${activeVehicle.rangeKm.toFixed(0)} km range left — Bolt City trips filtered out.`,
-        'info'
-      );
-    }
 
     const req = await generateLiveRideRequest({
       driverLocation: driverPos,
@@ -1165,15 +863,11 @@ export default function App() {
       destinationTarget: settings.destinationFilter.targetCoords,
       surgeZones,
       preferredRankArea: activeRank ? activeRank.area : null,
-      maxVehicleRangeKm: activeVehicle.rangeKm,
     });
 
     setActiveRequest(req);
     setActiveRoute(req.toPickupRoute);
     setPreviewDropoffRoute(req.toDropoffRoute);
-    setQueuedOffer(null);
-    setQueuedAccepted(false);
-    queuedOfferedForTripRef.current = null;
     setStatus('INCOMING_REQUEST');
     setActiveTab('map');
 
@@ -1195,8 +889,6 @@ export default function App() {
     settings.destinationFilter.targetCoords,
     surgeZones,
     activeRank,
-    activeVehicle.rangeKm,
-    addToast,
     sendNotification,
   ]);
 
@@ -1278,15 +970,9 @@ export default function App() {
       setActiveRoute(finalReq.toPickupRoute);
       setPreviewDropoffRoute([]);
       setActiveManeuvers(finalReq.maneuversToPickup);
-      currentManeuverIndexRef.current = 0;
       setCurrentManeuverIndex(0);
       setCurrentRouteIndex(0);
       routeProgressRef.current = { index: 0, progress: 0 };
-      if (finalReq.toPickupRoute.length > 1) {
-        const initHeading = calculateBearing(finalReq.toPickupRoute[0], finalReq.toPickupRoute[1]);
-        smoothHeadingRef.current = initHeading;
-        setDriverHeading(initHeading);
-      }
       setChatMessages([]);
       setUnreadChatCount(0);
       setAwaitingRiderReply(false);
@@ -1358,60 +1044,21 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
   }, [status, handleAcceptRequest, handleDeclineRequest]);
 
+  // Continuous turn-by-turn GPS navigation along road geometry
   useEffect(() => {
-    soundAlertsRef.current = settings.soundAlerts;
-  }, [settings.soundAlerts]);
-
-  // Silky 60fps delta-time simulated navigation with look-ahead cornering & turn-aware speed easing
-  useEffect(() => {
-    if (isLiveGps) return;
     if (status !== 'EN_ROUTE_PICKUP' && status !== 'IN_PROGRESS') return;
     if (activeRoute.length < 2) return;
 
-    let rafId = 0;
-    let lastTime = performance.now();
-    let lastSpeedInt = Math.round(smoothSpeedRef.current);
-    let lastRouteIdx = routeProgressRef.current.index;
-
-    // Helper: sample a look-ahead point ~N meters down the polyline for smooth curve anticipation
-    const getLookAheadPoint = (startIdx: number, startPos: LatLng, lookAheadKm: number): LatLng => {
-      let remaining = lookAheadKm;
-      let prev = startPos;
-      for (let i = startIdx + 1; i < activeRoute.length; i++) {
-        const next = activeRoute[i];
-        const seg = exactDistanceKm(prev, next);
-        if (seg >= remaining && seg > 0.0001) {
-          return interpolateLatLng(prev, next, remaining / seg);
-        }
-        remaining -= seg;
-        prev = next;
-      }
-      return activeRoute[activeRoute.length - 1];
-    };
-
-    const step = (now: number) => {
-      const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
-      lastTime = now;
-
+    const tickMs = 80;
+    const interval = setInterval(() => {
       let { index, progress } = routeProgressRef.current;
       if (index >= activeRoute.length - 1) return;
 
       const currPt = activeRoute[index];
       const nextPt = activeRoute[index + 1];
       const segKm = exactDistanceKm(currPt, nextPt);
-      const interpolatedPos =
-        segKm < 0.0005 ? currPt : interpolateLatLng(currPt, nextPt, Math.min(1, Math.max(0, progress)));
-
-      // Measure upcoming corner sharpness 38m ahead to gently ease speed into turns
-      const nearLookAhead = getLookAheadPoint(index, interpolatedPos, 0.038);
-      const immediateBearing = segKm > 0.0002 ? calculateBearing(currPt, nextPt) : smoothHeadingRef.current;
-      const aheadBearing = calculateBearing(interpolatedPos, nearLookAhead);
-      const turnSharpnessDeg = Math.abs(((aheadBearing - immediateBearing + 540) % 360) - 180);
-
-      const baseTargetKmh = turnSharpnessDeg > 42 ? 26 : turnSharpnessDeg > 18 ? 36 : segKm > 0.055 ? 50 : 42;
-      smoothSpeedRef.current += (baseTargetKmh - smoothSpeedRef.current) * (1 - Math.exp(-3.4 * dt));
-
-      const travelKm = ((smoothSpeedRef.current / 3600) * dt) * 2.25;
+      const targetKmh = segKm > 0.06 ? 48 : 34;
+      const travelKm = ((targetKmh / 3600) * (tickMs / 1000)) * 2.2;
 
       if (segKm < 0.0005) {
         index += 1;
@@ -1432,114 +1079,39 @@ export default function App() {
       }
 
       routeProgressRef.current = { index, progress };
-
-      if (index !== lastRouteIdx) {
-        lastRouteIdx = index;
-        setCurrentRouteIndex(index);
-      }
-
-      const roundedSpeed = Math.round(smoothSpeedRef.current);
-      if (roundedSpeed !== lastSpeedInt) {
-        lastSpeedInt = roundedSpeed;
-        setNavSpeedKmh(roundedSpeed);
-      }
+      setCurrentRouteIndex(index);
+      setNavSpeedKmh(Math.round(targetKmh + Math.sin(index * 0.7) * 3));
 
       if (index >= activeRoute.length - 1) {
         setDriverPos(activeRoute[activeRoute.length - 1]);
-        return;
+      } else {
+        const a = activeRoute[index];
+        const b = activeRoute[index + 1];
+        setDriverHeading(calculateBearing(a, b));
+        setDriverPos(interpolateLatLng(a, b, progress));
       }
 
-      const a = activeRoute[index];
-      const b = activeRoute[index + 1];
-      const nextPos = interpolateLatLng(a, b, progress);
-      const curveTargetPt = getLookAheadPoint(index, nextPos, 0.028);
-      const targetBearing =
-        exactDistanceKm(nextPos, curveTargetPt) > 0.001
-          ? calculateBearing(nextPos, curveTargetPt)
-          : calculateBearing(a, b);
-
-      // Exponential shortest-angle damping eliminates jerky snaps on vertices
-      const shortestDelta = ((targetBearing - smoothHeadingRef.current + 540) % 360) - 180;
-      const turnAlpha = 1 - Math.exp(-9.0 * dt);
-      const nextHeading = (smoothHeadingRef.current + shortestDelta * turnAlpha + 360) % 360;
-      smoothHeadingRef.current = nextHeading;
-
-      setDriverPos(nextPos);
-      setDriverHeading(nextHeading);
-
-      let matchedManIdx = currentManeuverIndexRef.current;
-      for (let m = matchedManIdx + 1; m < activeManeuvers.length; m++) {
+      let matchedManIdx = currentManeuverIndex;
+      for (let m = currentManeuverIndex + 1; m < activeManeuvers.length; m++) {
         if (index >= activeManeuvers[m].pointIndex) {
           matchedManIdx = m;
         } else {
           break;
         }
       }
-      if (matchedManIdx > currentManeuverIndexRef.current) {
-        currentManeuverIndexRef.current = matchedManIdx;
+      if (matchedManIdx > currentManeuverIndex) {
         setCurrentManeuverIndex(matchedManIdx);
-        playNavigationTurnPing(soundAlertsRef.current);
+        playNavigationTurnPing(settings.soundAlerts);
       }
+    }, tickMs);
 
-      rafId = requestAnimationFrame(step);
-    };
-
-    rafId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafId);
-  }, [isLiveGps, status, activeRoute, activeManeuvers]);
-
-  // Smart Back-to-Back Queued Ride Offer when ~1–2 min from current dropoff
-  useEffect(() => {
-    if (status !== 'IN_PROGRESS' || !activeRequest || activeRoute.length < 4) return;
-    const progressRatio = currentRouteIndex / (activeRoute.length - 1);
-    if (
-      progressRatio >= 0.72 &&
-      !queuedOffer &&
-      queuedOfferedForTripRef.current !== activeRequest.id
-    ) {
-      queuedOfferedForTripRef.current = activeRequest.id;
-      const allowedCats = isInsuranceExpired ? (['Delivery'] as const) : settings.enabledCategories;
-      generateLiveRideRequest({
-        driverLocation: activeRequest.dropoffCoords,
-        originOverride: activeRequest.dropoffCoords,
-        cityId: currentCityId,
-        enabledCategories: [...allowedCats],
-        acceptCash: settings.acceptCash,
-        allowBid: false,
-        maxPickupKm: Math.max(2, settings.maxPickupKm),
-        minFareFilter: settings.minFareFilter,
-        minRiderRating: settings.minRiderRating,
-        destinationTarget: settings.destinationFilter.targetCoords,
-        surgeZones,
-        maxVehicleRangeKm: activeVehicle.rangeKm,
-      }).then((nextReq) => {
-        setQueuedOffer(nextReq);
-        playHyperSound('order', settings.soundAlerts);
-        addToast(
-          'Next Back-to-Back Offer',
-          `Pickup near dropoff · ${nextReq.currency}${nextReq.estimatedFare.toFixed(2)}`,
-          'info'
-        );
-      });
-    }
+    return () => clearInterval(interval);
   }, [
     status,
-    activeRequest,
-    activeRoute.length,
-    currentRouteIndex,
-    queuedOffer,
-    isInsuranceExpired,
-    settings.enabledCategories,
-    settings.acceptCash,
-    settings.maxPickupKm,
-    settings.minFareFilter,
-    settings.minRiderRating,
-    settings.destinationFilter.targetCoords,
+    activeRoute,
+    activeManeuvers,
+    currentManeuverIndex,
     settings.soundAlerts,
-    currentCityId,
-    surgeZones,
-    activeVehicle.rangeKm,
-    addToast,
   ]);
 
   const handleArrivePickup = useCallback(() => {
@@ -1548,8 +1120,6 @@ export default function App() {
     setActiveRoute([]);
     setCurrentRouteIndex(0);
     routeProgressRef.current = { index: 0, progress: 0 };
-    lastTripWaitFeeRef.current = 0;
-    lastTripPinVerifiedRef.current = false;
     setStatus('ARRIVED_PICKUP');
     playArrivalChime(settings.soundAlerts);
     // Start 2-minute customer response watch if rider hasn't replied yet
@@ -1559,38 +1129,18 @@ export default function App() {
     }
   }, [activeRequest, settings.soundAlerts, chatMessages]);
 
-  const handleStartTrip = useCallback(
-    (waitFeeAccrued: number = 0, pinVerified: boolean = false) => {
-      if (!activeRequest) return;
-      lastTripWaitFeeRef.current = Number(waitFeeAccrued.toFixed(2));
-      lastTripPinVerifiedRef.current = pinVerified;
-      const updatedReq: RideRequest =
-        waitFeeAccrued > 0
-          ? {
-              ...activeRequest,
-              waitFeeTotal: Number(waitFeeAccrued.toFixed(2)),
-              estimatedFare: Number((activeRequest.estimatedFare + waitFeeAccrued).toFixed(2)),
-            }
-          : activeRequest;
-      setActiveRequest(updatedReq);
-      setActiveRoute(updatedReq.toDropoffRoute);
-      setActiveManeuvers(updatedReq.maneuversToDropoff);
-      currentManeuverIndexRef.current = 0;
-      setCurrentManeuverIndex(0);
-      setCurrentRouteIndex(0);
-      routeProgressRef.current = { index: 0, progress: 0 };
-      if (updatedReq.toDropoffRoute.length > 1) {
-        const initHeading = calculateBearing(updatedReq.toDropoffRoute[0], updatedReq.toDropoffRoute[1]);
-        smoothHeadingRef.current = initHeading;
-        setDriverHeading(initHeading);
-      }
-      setAwaitingRiderReply(false);
-      setRiderNoResponseSec(0);
-      setStatus('IN_PROGRESS');
-      playSuccessTone(settings.soundAlerts);
-    },
-    [activeRequest, settings.soundAlerts]
-  );
+  const handleStartTrip = useCallback(() => {
+    if (!activeRequest) return;
+    setActiveRoute(activeRequest.toDropoffRoute);
+    setActiveManeuvers(activeRequest.maneuversToDropoff);
+    setCurrentManeuverIndex(0);
+    setCurrentRouteIndex(0);
+    routeProgressRef.current = { index: 0, progress: 0 };
+    setAwaitingRiderReply(false);
+    setRiderNoResponseSec(0);
+    setStatus('IN_PROGRESS');
+    playSuccessTone(settings.soundAlerts);
+  }, [activeRequest, settings.soundAlerts]);
 
   const handleCompleteTrip = useCallback(() => {
     if (!activeRequest) return;
@@ -1601,39 +1151,12 @@ export default function App() {
     routeProgressRef.current = { index: 0, progress: 0 };
     setAwaitingRiderReply(false);
     setRiderNoResponseSec(0);
-
-    // Update EV/Fuel Range & Odometer Mileage + Alert if low range / service due
-    const drivenKm = Math.max(1, Math.round(activeRequest.tripDistanceKm));
-    setShiftDistanceKm((km) => Number((km + activeRequest.tripDistanceKm).toFixed(1)));
-    setVehicles((prev) =>
-      prev.map((v) => {
-        if (!v.isActive) return v;
-        const nextRange = Math.max(0, Number((v.rangeKm - activeRequest.tripDistanceKm).toFixed(1)));
-        const nextOdo = v.odometerKm + drivenKm;
-        if (nextRange < 80) {
-          addToast(
-            v.fuelType === 'Electric' ? 'Low EV Battery Range' : 'Low Fuel Range',
-            `${nextRange.toFixed(0)} km left — consider recharging in Account -> Fleet.`,
-            'alert'
-          );
-        } else if (v.nextServiceKm - nextOdo <= 400) {
-          addToast(
-            'Maintenance Reminder',
-            `Vehicle service due in ${Math.max(0, v.nextServiceKm - nextOdo)} km.`,
-            'info'
-          );
-        }
-        return { ...v, rangeKm: nextRange, odometerKm: nextOdo };
-      })
-    );
-
     setStatus('TRIP_COMPLETED');
     playSuccessTone(settings.soundAlerts);
-  }, [activeRequest, settings.soundAlerts, addToast]);
+  }, [activeRequest, settings.soundAlerts]);
 
   const handleSubmitRating = (rating: number, tipBonus: number) => {
     if (!activeRequest) return;
-    const waitFee = lastTripWaitFeeRef.current || activeRequest.waitFeeTotal || 0;
     const commission = Number((activeRequest.estimatedFare * 0.15).toFixed(2));
     const netEarnings = Number((activeRequest.estimatedFare - commission + tipBonus).toFixed(2));
     const now = new Date();
@@ -1641,11 +1164,9 @@ export default function App() {
       .getMinutes()
       .toString()
       .padStart(2, '0')}`;
-    const tripId = `TR-${9043 + trips.length}`;
-    const matchedInc = incidents.find((i) => i.tripId === activeRequest.id);
 
     const newTrip: CompletedTrip = {
-      id: tripId,
+      id: `TR-${9043 + trips.length}`,
       riderName: activeRequest.riderName,
       category: activeRequest.category,
       paymentMethod: activeRequest.paymentMethod,
@@ -1656,18 +1177,11 @@ export default function App() {
       distanceKm: activeRequest.tripDistanceKm,
       durationMin: activeRequest.tripEtaMin,
       grossFare: activeRequest.estimatedFare,
-      baseFare: activeRequest.baseFare,
-      distanceFare: activeRequest.distanceFare,
-      timeFare: activeRequest.timeFare,
-      waitFee,
       boltCommission: commission,
       surgeBonus: activeRequest.surgeBonus,
       tip: tipBonus,
       netEarnings,
       riderRatingGiven: rating,
-      stopsCount: activeRequest.stops?.length || 0,
-      pickupPinVerified: lastTripPinVerifiedRef.current,
-      incidentNote: matchedInc?.summary,
     };
 
     setTrips((prev) => [newTrip, ...prev]);
@@ -1694,49 +1208,20 @@ export default function App() {
       })
     );
 
+    setActiveRequest(null);
+    dispatchTriggeredRef.current = false;
+    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
+    setStatus('ONLINE_IDLE');
     sendNotification(
       'Trip Paid',
       `${currency}${netEarnings.toFixed(2)} added to today's earnings`,
       'success'
     );
-
-    // Transition straight into accepted back-to-back queued ride if present
-    if (queuedOffer && queuedAccepted) {
-      const nextReq = queuedOffer;
-      setQueuedOffer(null);
-      setQueuedAccepted(false);
-      queuedOfferedForTripRef.current = null;
-      setActiveRequest(nextReq);
-      setActiveRoute(nextReq.toPickupRoute);
-      setPreviewDropoffRoute([]);
-      setActiveManeuvers(nextReq.maneuversToPickup);
-      setCurrentManeuverIndex(0);
-      setCurrentRouteIndex(0);
-      routeProgressRef.current = { index: 0, progress: 0 };
-      setChatMessages([]);
-      setUnreadChatCount(0);
-      setAwaitingRiderReply(false);
-      setRiderNoResponseSec(0);
-      setStatus('EN_ROUTE_PICKUP');
-      addToast('Queued Ride Started', `Navigating to ${nextReq.pickupAddress}`, 'success');
-      return;
-    }
-
-    setQueuedOffer(null);
-    setQueuedAccepted(false);
-    queuedOfferedForTripRef.current = null;
-    setActiveRequest(null);
-    dispatchTriggeredRef.current = false;
-    setNextRequestWaitLeft(resolveDispatchWaitSeconds(settings.dispatchWaitSec));
-    setStatus('ONLINE_IDLE');
   };
 
   const handleConfirmCancel = (reason: string) => {
     setShowCancelModal(false);
     setActiveRequest(null);
-    setQueuedOffer(null);
-    setQueuedAccepted(false);
-    queuedOfferedForTripRef.current = null;
     setActiveRoute([]);
     setPreviewDropoffRoute([]);
     setActiveManeuvers([]);
@@ -2186,258 +1671,6 @@ export default function App() {
     }
   };
 
-  const handleRechargeVehicle = (vehicleId: string) => {
-    const target = vehicles.find((v) => v.id === vehicleId) || activeVehicle;
-    setVehicles((prev) =>
-      prev.map((v) => (v.id === target.id ? { ...v, rangeKm: v.maxRangeKm } : v))
-    );
-    addToast(
-      target.fuelType === 'Electric' ? 'Battery Recharged' : 'Tank Refuelled',
-      `${target.makeModel} topped up to ${target.maxRangeKm} km range.`,
-      'success'
-    );
-  };
-
-  const handleServiceVehicle = (vehicleId: string, kind: 'service' | 'tyres') => {
-    setVehicles((prev) =>
-      prev.map((v) => {
-        if (v.id !== vehicleId) return v;
-        if (kind === 'service') return { ...v, nextServiceKm: v.odometerKm + 10000 };
-        return { ...v, tyreCheckKm: v.odometerKm + 6000 };
-      })
-    );
-    addToast(
-      'Maintenance Logged',
-      kind === 'service'
-        ? 'Full vehicle service reset (+10,000 km).'
-        : 'Tyre check & rotation reset (+6,000 km).',
-      'success'
-    );
-  };
-
-  const handleAddExpense = async (
-    exp: Omit<ExpenseRecord, 'id' | 'dateIso' | 'dayKey' | 'createdAtMs'>
-  ) => {
-    const now = Date.now();
-    const record: ExpenseRecord = {
-      id: `exp-${now}-${Math.floor(Math.random() * 999)}`,
-      category: exp.category,
-      amount: exp.amount,
-      note: exp.note,
-      dateIso: new Date().toISOString().slice(0, 10),
-      dayKey: todayKey,
-      createdAtMs: now,
-    };
-    const nextList = [record, ...expenses];
-    setExpenses(nextList);
-    saveScopedJson(EXPENSES_STORAGE_PREFIX, activeUserScopeKey, nextList);
-    addToast('Expense Logged', `${currency}${record.amount.toFixed(2)} for ${record.category}`, 'info');
-
-    if (firebaseUser && isProfileLoaded) {
-      try {
-        await setDoc(doc(db, 'users', firebaseUser.uid, 'expenses', record.id), {
-          id: record.id,
-          uid: firebaseUser.uid,
-          category: record.category,
-          amount: record.amount,
-          ...(record.note ? { note: record.note } : {}),
-          dateIso: record.dateIso,
-          dayKey: record.dayKey,
-          createdAtMs: record.createdAtMs,
-        });
-      } catch (error) {
-        if (typeof navigator === 'undefined' || navigator.onLine) {
-          handleFirestoreError(
-            error,
-            OperationType.CREATE,
-            `users/${firebaseUser.uid}/expenses/${record.id}`
-          );
-        }
-      }
-    }
-  };
-
-  const handleDeleteExpense = async (expenseId: string) => {
-    const nextList = expenses.filter((e) => e.id !== expenseId);
-    setExpenses(nextList);
-    saveScopedJson(EXPENSES_STORAGE_PREFIX, activeUserScopeKey, nextList);
-
-    if (firebaseUser && isProfileLoaded) {
-      try {
-        await deleteDoc(doc(db, 'users', firebaseUser.uid, 'expenses', expenseId));
-      } catch (error) {
-        if (typeof navigator === 'undefined' || navigator.onLine) {
-          handleFirestoreError(
-            error,
-            OperationType.DELETE,
-            `users/${firebaseUser.uid}/expenses/${expenseId}`
-          );
-        }
-      }
-    }
-  };
-
-  const handleSaveIncident = async (
-    inc: Omit<IncidentReport, 'id' | 'createdAtLabel' | 'createdAtMs'>
-  ) => {
-    const now = Date.now();
-    const nowDate = new Date();
-    const label = `${todayKey} ${nowDate.getHours().toString().padStart(2, '0')}:${nowDate
-      .getMinutes()
-      .toString()
-      .padStart(2, '0')}`;
-    const record: IncidentReport = {
-      ...inc,
-      id: `inc-${now}-${Math.floor(Math.random() * 999)}`,
-      createdAtLabel: label,
-      createdAtMs: now,
-    };
-    const nextList = [record, ...incidents];
-    setIncidents(nextList);
-    saveScopedJson(INCIDENTS_STORAGE_PREFIX, activeUserScopeKey, nextList);
-    sendNotification('Safety Incident Saved', `${record.type} attached to shift record.`, 'info');
-
-    if (firebaseUser && isProfileLoaded) {
-      try {
-        await setDoc(doc(db, 'users', firebaseUser.uid, 'incidents', record.id), {
-          id: record.id,
-          uid: firebaseUser.uid,
-          type: record.type,
-          summary: record.summary,
-          hasAudioNote: record.hasAudioNote,
-          ...(record.audioDurationSec !== undefined
-            ? { audioDurationSec: record.audioDurationSec }
-            : {}),
-          coords: record.coords,
-          ...(record.tripId ? { tripId: record.tripId } : {}),
-          ...(record.riderName ? { riderName: record.riderName } : {}),
-          vehiclePlate: record.vehiclePlate,
-          createdAtLabel: record.createdAtLabel,
-          createdAtMs: record.createdAtMs,
-        });
-      } catch (error) {
-        if (typeof navigator === 'undefined' || navigator.onLine) {
-          handleFirestoreError(
-            error,
-            OperationType.CREATE,
-            `users/${firebaseUser.uid}/incidents/${record.id}`
-          );
-        }
-      }
-    }
-  };
-
-  const handleToggleClaimScheduled = (rideId: string) => {
-    setScheduledRides((prev) =>
-      prev.map((r) => {
-        if (r.id !== rideId) return r;
-        const nextClaimed = !r.claimed;
-        addToast(
-          nextClaimed ? 'Reservation Claimed' : 'Reservation Released',
-          nextClaimed
-            ? `${r.tag} at ${r.pickupTimeLabel} added to your queue.`
-            : `${r.tag} returned to marketplace.`,
-          nextClaimed ? 'success' : 'info'
-        );
-        return { ...r, claimed: nextClaimed };
-      })
-    );
-  };
-
-  const handleStartScheduledRide = async (ride: ScheduledRide) => {
-    const [toPickup, toDropoff] = await Promise.all([
-      fetchRoadRoute(driverPos, ride.pickupCoords),
-      fetchRoadRoute(ride.pickupCoords, ride.dropoffCoords),
-    ]);
-    const req: RideRequest = {
-      id: ride.id,
-      riderName: ride.riderName,
-      riderRating: ride.riderRating,
-      riderTrips: 92,
-      category: ride.category,
-      paymentMethod: ride.paymentMethod,
-      surgeMultiplier: 1.0,
-      pickupCoords: ride.pickupCoords,
-      pickupAddress: ride.pickupAddress,
-      pickupArea: ride.pickupArea,
-      dropoffCoords: ride.dropoffCoords,
-      dropoffAddress: ride.dropoffAddress,
-      dropoffArea: ride.dropoffArea,
-      pickupPin: ride.pickupPin,
-      waitFeePerMin: 0.45,
-      waitFeeTotal: 0,
-      pickupDistanceKm: toPickup.distanceKm,
-      pickupEtaMin: toPickup.durationMin,
-      tripDistanceKm: ride.tripDistanceKm,
-      tripEtaMin: ride.tripEtaMin,
-      estimatedFare: ride.estimatedFare,
-      baseFare: 4.5,
-      distanceFare: Number((ride.estimatedFare * 0.65).toFixed(2)),
-      timeFare: Number((ride.estimatedFare * 0.35 - 4.5).toFixed(2)),
-      surgeBonus: 0,
-      currency: ride.currency,
-      toPickupRoute: toPickup.points,
-      toDropoffRoute: toDropoff.points,
-      maneuversToPickup: toPickup.maneuvers,
-      maneuversToDropoff: toDropoff.maneuvers,
-      allowBid: false,
-      isOutOfCity: ride.category === 'Bolt City',
-      willRiderReply: true,
-      note: ride.note,
-    };
-
-    setScheduledRides((prev) => prev.filter((r) => r.id !== ride.id));
-    setActiveRequest(req);
-    setActiveRoute(req.toPickupRoute);
-    setPreviewDropoffRoute([]);
-    setActiveManeuvers(req.maneuversToPickup);
-    setCurrentManeuverIndex(0);
-    setCurrentRouteIndex(0);
-    routeProgressRef.current = { index: 0, progress: 0 };
-    setChatMessages([]);
-    setUnreadChatCount(0);
-    setAwaitingRiderReply(false);
-    setRiderNoResponseSec(0);
-    setStatus('EN_ROUTE_PICKUP');
-    setActiveTab('map');
-    playSuccessTone(settings.soundAlerts);
-    addToast('Scheduled Ride Active', `Navigating to ${ride.pickupAddress}`, 'success');
-  };
-
-  const handleRequestPinInChat = () => {
-    if (!activeRequest?.pickupPin) return;
-    const now = new Date();
-    const ts = `${now.getHours().toString().padStart(2, '0')}:${now
-      .getMinutes()
-      .toString()
-      .padStart(2, '0')}`;
-    const pin = activeRequest.pickupPin;
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        id: `m-${Date.now()}`,
-        sender: 'driver',
-        text: 'Hi! Please share your 4-digit Bolt pickup PIN when you get to the car.',
-        timestamp: ts,
-      },
-    ]);
-    setShowChat(true);
-    setUnreadChatCount(0);
-
-    setTimeout(() => {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: `r-pin-${Date.now()}`,
-          sender: 'rider',
-          text: `Sure — my 4-digit pickup PIN is ${pin}. See you in a moment!`,
-          timestamp: ts,
-        },
-      ]);
-      sendNotification('Pickup PIN Received', `${activeRequest.riderName} sent PIN: ${pin}`, 'message');
-    }, 1100);
-  };
-
   // Remaining route ETA & Distance calculation along remaining polyline segments
   const targetCoord =
     status === 'EN_ROUTE_PICKUP' ? activeRequest?.pickupCoords : activeRequest?.dropoffCoords;
@@ -2465,26 +1698,19 @@ export default function App() {
     status === 'IN_PROGRESS' ||
     status === 'TRIP_COMPLETED';
 
-  const desktopNavItems: {
-    id: AppTab;
-    label: string;
-    icon: React.ComponentType<{ className?: string }>;
-  }[] = [
-    { id: 'map', label: 'Drive', icon: MapIcon },
-    { id: 'schedule', label: 'Schedule', icon: CalendarClock },
-    { id: 'earnings', label: 'Earnings', icon: Wallet },
-    { id: 'activity', label: 'Activity', icon: Activity },
-    { id: 'insurance', label: 'Insurance', icon: Shield },
-    { id: 'account', label: 'Account', icon: User },
-  ];
-
-  const mobileNavItems = desktopNavItems.filter((item) => item.id !== 'insurance');
-  const claimedScheduleCount = scheduledRides.filter((r) => r.claimed).length;
+  const navItems: { id: AppTab; label: string; icon: React.ComponentType<{ className?: string }> }[] =
+    [
+      { id: 'map', label: 'Drive', icon: MapIcon },
+      { id: 'earnings', label: 'Earnings', icon: Wallet },
+      { id: 'activity', label: 'Activity', icon: Activity },
+      { id: 'insurance', label: 'Insurance', icon: Shield },
+      { id: 'account', label: 'Account', icon: User },
+    ];
 
   return (
     <div className="h-dvh w-screen overflow-hidden flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 text-slate-950 dark:text-white">
       {/* Desktop Left Navigation Rail */}
-      <aside className="no-print hidden lg:flex flex-col justify-between w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800 p-5 z-30">
+      <aside className="hidden lg:flex flex-col justify-between w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800 p-5 z-30">
         <div className="space-y-6">
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2.5">
@@ -2512,7 +1738,7 @@ export default function App() {
           </div>
 
           <nav className="space-y-1.5">
-            {desktopNavItems.map((item) => {
+            {navItems.map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
               return (
@@ -2534,11 +1760,6 @@ export default function App() {
                     />
                     <span>{item.label}</span>
                   </span>
-                  {item.id === 'schedule' && claimedScheduleCount > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full bg-[#34D186] text-slate-950 text-[10px] font-extrabold">
-                      {claimedScheduleCount}
-                    </span>
-                  )}
                   {item.id === 'insurance' && isInsuranceExpired && (
                     <span className="text-[10px] font-extrabold text-rose-600 dark:text-rose-400">
                       Expired
@@ -2571,8 +1792,7 @@ export default function App() {
               <span className="truncate">{activeVehicle.makeModel}</span>
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
-              {activeVehicle.plate} · {Math.round(activeVehicle.rangeKm)} km ·{' '}
-              {isLiveGps ? 'Live GPS' : activeCity.name}
+              {activeVehicle.plate} · {isLiveGps ? 'Live GPS' : activeCity.name}
             </div>
           </div>
         </div>
@@ -2582,7 +1802,7 @@ export default function App() {
       <main className="relative flex-1 h-full overflow-hidden">
         {/* Global In-App Toasts Stack */}
         {toasts.length > 0 && (
-          <div className="no-print absolute top-[max(4.25rem,calc(env(safe-area-inset-top)+3.5rem))] left-1/2 -translate-x-1/2 z-[470] flex flex-col gap-2 items-center pointer-events-none w-full max-w-sm px-4">
+          <div className="absolute top-[max(4.25rem,calc(env(safe-area-inset-top)+3.5rem))] left-1/2 -translate-x-1/2 z-[470] flex flex-col gap-2 items-center pointer-events-none w-full max-w-sm px-4">
             {toasts.map((t) => (
               <div
                 key={t.id}
@@ -2617,44 +1837,15 @@ export default function App() {
               remainingEtaMin={remainingEtaMin}
               remainingDistKm={remainingDistKm}
               surgeZones={surgeZones}
-              districtDemandZones={districtDemandZones}
-              showHeatmap={settings.showHeatmap}
-              headingUpNav={settings.headingUpNav}
               ranks={ranks}
               activeRankId={activeRankId}
-              rankQueuePos={rankQueuePos}
-              activeVehicle={activeVehicle}
               darkMode={settings.darkMode}
               soundEnabled={settings.soundAlerts}
               isLiveGps={isLiveGps}
               gpsLoading={gpsLoading}
-              isRerouting={isRerouting}
               currentCityId={currentCityId}
               destinationTarget={settings.destinationFilter.targetCoords}
-              onToggleLiveGps={handleToggleLiveGps}
-              onToggleHeatmap={() =>
-                setSettings((s) => {
-                  const next = !s.showHeatmap;
-                  addToast(
-                    'D3 Demand Heatmap',
-                    next ? 'Hourly & +1–2h demand overlay visible' : 'Heatmap overlay hidden',
-                    'info'
-                  );
-                  return { ...s, showHeatmap: next };
-                })
-              }
-              onToggleHeadingUp={() =>
-                setSettings((s) => {
-                  const next = !s.headingUpNav;
-                  addToast(
-                    next ? 'Heading-Up Mode' : 'North-Up 2D Mode',
-                    next ? 'Map rotates in direction of travel' : 'Map locked North-Up',
-                    'info'
-                  );
-                  return { ...s, headingUpNav: next };
-                })
-              }
-              onRefuelOrCharge={() => handleRechargeVehicle(activeVehicle.id)}
+              onRequestLiveGps={handleRequestLiveGps}
               onSelectCity={handleSelectCity}
               onToggleSound={() => {
                 const next = !settings.soundAlerts;
@@ -2681,8 +1872,8 @@ export default function App() {
                   setActiveRankId(rank.id);
                   setRankQueuePos(rank.queueCount + 1);
                   addToast(
-                    'Joined Rank Queue',
-                    `${rank.name} · Spot #${rank.queueCount + 1} of ${rank.totalDrivers} (${rank.avgFareBoost})`,
+                    'Joined Taxi Rank',
+                    `${rank.name} · Position #${rank.queueCount + 1} (${rank.avgFareBoost})`,
                     'success'
                   );
                 }
@@ -2843,21 +2034,15 @@ export default function App() {
                 <TripPanels
                   status={status}
                   activeRequest={activeRequest}
-                  queuedOffer={queuedOffer}
-                  queuedAccepted={queuedAccepted}
                   currency={currency}
                   todayEarnings={todayEarnings}
-                  dailyGoal={settings.dailyGoal}
                   todayTripsCount={todayTripsCount}
-                  shiftElapsedSec={shiftElapsedSec}
-                  shiftDistanceKm={shiftDistanceKm}
                   driverScore={driverScore}
                   remainingEtaMin={remainingEtaMin}
                   remainingDistKm={remainingDistKm}
                   destinationLabel={settings.destinationFilter.targetLabel}
                   unreadChatCount={unreadChatCount}
                   openBidJobsCount={bidJobs.length}
-                  claimedScheduledRide={nextClaimedScheduled}
                   lastRefreshLabel={lastBackgroundSync}
                   backgroundRefreshEnabled={settings.backgroundRefresh}
                   nextRequestWaitLeft={nextRequestWaitLeft}
@@ -2880,7 +2065,6 @@ export default function App() {
                     setRankQueuePos(null);
                   }}
                   onOpenBidJobs={() => setShowBidJobsModal(true)}
-                  onOpenSchedule={() => setActiveTab('schedule')}
                   onOpenPreferences={() => setShowPrefs(true)}
                   onOpenDestination={() => setShowDestination(true)}
                   onClearDestination={() =>
@@ -2894,19 +2078,8 @@ export default function App() {
                     }))
                   }
                   onArrivePickup={handleArrivePickup}
-                  onRequestPinInChat={handleRequestPinInChat}
                   onStartTrip={handleStartTrip}
                   onCompleteTrip={handleCompleteTrip}
-                  onAcceptQueuedOffer={() => {
-                    setQueuedAccepted(true);
-                    playBidAcceptedTone(settings.soundAlerts);
-                    addToast(
-                      'Next Ride Queued',
-                      'Starts automatically right after finishing this dropoff.',
-                      'success'
-                    );
-                  }}
-                  onDeclineQueuedOffer={() => setQueuedOffer(null)}
                   onOpenChat={() => {
                     setShowChat(true);
                     setUnreadChatCount(0);
@@ -2926,35 +2099,12 @@ export default function App() {
           </div>
         )}
 
-        {activeTab === 'schedule' && (
-          <ScheduledRidesView
-            rides={scheduledRides}
-            onToggleClaim={handleToggleClaimScheduled}
-            onStartScheduledRide={handleStartScheduledRide}
-            onRefreshSchedule={() => {
-              setScheduledRides(generateScheduledRidesNear(driverPos, currentCityId));
-              addToast('Schedule Refreshed', 'Updated upcoming airport & morning slots.', 'info');
-            }}
-          />
-        )}
-
         {activeTab === 'earnings' && (
           <EarningsView
             trips={trips}
             weeklySeries={weeklySeries}
             payoutBalance={profile.bankBalance}
             currency={currency}
-            dailyGoal={settings.dailyGoal}
-            onUpdateDailyGoal={(goal) => setSettings((s) => ({ ...s, dailyGoal: goal }))}
-            shiftElapsedSec={shiftElapsedSec}
-            shiftDistanceKm={shiftDistanceKm}
-            expenses={expenses}
-            onAddExpense={handleAddExpense}
-            onDeleteExpense={handleDeleteExpense}
-            incidents={incidents}
-            driverName={profile.fullName}
-            vehicleLabel={activeVehicle.makeModel}
-            vehiclePlate={activeVehicle.plate}
             onCashOut={(amt) =>
               setProfile((p) => ({
                 ...p,
@@ -3006,7 +2156,6 @@ export default function App() {
             vehicles={vehicles}
             documents={documents}
             settings={settings}
-            currency={currency}
             riderRating={riderRating}
             totalLifetimeTrips={trips.length}
             notificationPermission={notificationPermission}
@@ -3015,8 +2164,6 @@ export default function App() {
             notificationsLog={notificationsLog}
             isInsuranceExpired={isInsuranceExpired}
             onSelectVehicle={handleSelectVehicle}
-            onRechargeVehicle={handleRechargeVehicle}
-            onServiceVehicle={handleServiceVehicle}
             onUpdateSettings={(next) => setSettings((s) => ({ ...s, ...next }))}
             onOpenAccountCreation={() => setShowAccountCreation(true)}
             onSignInGoogle={handleSignInGoogle}
@@ -3045,9 +2192,9 @@ export default function App() {
 
       {/* Mobile Fixed Bottom Navigation Bar (5 tabs) */}
       {!(activeTab === 'map' && isTripActive) && (
-        <nav className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-[420] pb-safe bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800">
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[420] pb-safe bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800">
           <div className="h-16 grid grid-cols-5 items-center">
-            {mobileNavItems.map((item) => {
+            {navItems.map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
               return (
@@ -3055,18 +2202,13 @@ export default function App() {
                   key={item.id}
                   type="button"
                   onClick={() => setActiveTab(item.id)}
-                  className="relative flex flex-col items-center justify-center h-full min-w-[44px] active:scale-95 transition-transform"
+                  className="flex flex-col items-center justify-center h-full min-w-[44px] active:scale-95 transition-transform"
                 >
                   <Icon
                     className={`w-5 h-5 transition-colors ${
                       active ? 'text-[#25B670]' : 'text-slate-500 dark:text-slate-400'
                     }`}
                   />
-                  {item.id === 'schedule' && claimedScheduleCount > 0 && (
-                    <span className="absolute top-2 right-3 w-4 h-4 rounded-full bg-[#34D186] text-slate-950 text-[9px] font-extrabold flex items-center justify-center">
-                      {claimedScheduleCount}
-                    </span>
-                  )}
                   <span
                     className={`text-[10px] font-bold mt-1 ${
                       active
@@ -3194,23 +2336,7 @@ export default function App() {
         />
       )}
 
-      {showSafetyModal && (
-        <SafetyModal
-          driverPos={driverPos}
-          vehicleLabel={activeVehicle.makeModel}
-          vehiclePlate={activeVehicle.plate}
-          activeTripLabel={
-            activeRequest
-              ? `${activeRequest.pickupAddress} → ${activeRequest.dropoffAddress}`
-              : undefined
-          }
-          activeTripId={activeRequest?.id}
-          riderName={activeRequest?.riderName}
-          incidents={incidents}
-          onSaveIncident={handleSaveIncident}
-          onClose={() => setShowSafetyModal(false)}
-        />
-      )}
+      {showSafetyModal && <SafetyModal onClose={() => setShowSafetyModal(false)} />}
 
       {showPermissionsModal && (
         <PermissionsPromptModal
